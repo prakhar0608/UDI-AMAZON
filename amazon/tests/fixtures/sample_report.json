@@ -1,0 +1,11 @@
+[
+  {
+    "campaignId": "111",
+    "campaignName": "Test Campaign",
+    "date": "2026-04-01",
+    "cost": 12.34,
+    "sales1d": 56.78,
+    "impressions": 100,
+    "clicks": 5
+  }
+]

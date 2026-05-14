@@ -1,0 +1,18 @@
+# Optional: only needed if you use "Use manual config/profiles.yaml" in the Streamlit sidebar.
+# Otherwise accounts come from API discovery (Refresh accounts) and `data/cache/profiles_cache.json`.
+# region: NA | EU | FE (maps to Amazon Advertising API host)
+profiles:
+  - id: 1234567890
+    region: NA
+    display_name: "Brand A US"
+    # timezone: "America/Los_Angeles"
+    # currency_code: "USD"
+    # country_code: "US"
+  - id: 9876543210
+    region: EU
+    display_name: "Brand A EU"
+    # timezone: "Europe/London"
+    # currency_code: "GBP"
+    # country_code: "GB"
+    # Optional: set the same account_group on multiple rows to group them in the UI
+    # account_group: "name:my_brand"

@@ -1,0 +1,9 @@
+# Copy to profiles.yaml and fill in your advertising profile ids.
+# region: NA | EU | FE (maps to Amazon Advertising API host)
+profiles:
+  - id: 1234567890
+    region: NA
+    display_name: "Brand A US"
+  - id: 9876543210
+    region: EU
+    display_name: "Brand A EU"

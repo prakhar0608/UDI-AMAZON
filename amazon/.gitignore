@@ -1,0 +1,17 @@
+.venv/
+venv/
+.env
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+data/
+logs/
+*.xlsx
+.DS_Store
+dist/
+build/
+*.egg-info/
+amazon_ads_app.egg-info/

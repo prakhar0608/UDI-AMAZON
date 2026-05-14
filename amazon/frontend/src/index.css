@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+@theme {
+  --color-amazon-orange: #FF9900;
+  --color-amazon-dark: #131921;
+  --color-amazon-light: #232F3E;
+  --color-ai-neon: #0ea5e9; /* Professional Blue */
+  --color-ai-purple: #8b5cf6;
+}
+
+@utility glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+@utility glass-card {
+  @apply glass rounded-2xl p-6 shadow-sm transition-all duration-300;
+}
+
+:root {
+  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light;
+  color: #0f172a;
+  background-color: #f8fafc;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Professional Grid Background (Light) */
+.bg-ai-grid {
+  background-image: linear-gradient(to right, rgba(14, 165, 233, 0.03) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(14, 165, 233, 0.03) 1px, transparent 1px);
+  background-size: 30px 30px;
+}
+
+.glass-card:hover {
+  border-color: rgba(14, 165, 233, 0.2);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+}
+
+body {
+  margin: 0;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+  @apply bg-slate-50 text-slate-900;
+}
+
+#root {
+  width: 100%;
+}
+
+/* Subtle Shadows */
+.neon-glow-orange {
+  box-shadow: 0 4px 14px 0 rgba(255, 153, 0, 0.2);
+}
+
+.neon-glow-ai {
+  box-shadow: 0 4px 14px 0 rgba(14, 165, 233, 0.2);
+}
+
+/* Gradients */
+.bg-ai-gradient {
+  background: linear-gradient(135deg, #0ea5e9 0%, #8b5cf6 100%);
+}
+
+.text-ai-gradient {
+  background: linear-gradient(135deg, #0ea5e9 0%, #8b5cf6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  @apply bg-slate-200 rounded-full;
+}
