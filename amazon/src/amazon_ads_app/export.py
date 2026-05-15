@@ -52,8 +52,8 @@ def _apply_excel_formatting(writer: pd.ExcelWriter, df: pd.DataFrame, sheet_name
             num_format = "0.00"
             fill = PatternFill(start_color="EBF5EB", end_color="EBF5EB", fill_type="solid")
         elif "acos" in col_lower or "ctr" in col_lower:
-            # ACoS and CTR: 2 decimal points
-            num_format = "0.00"
+            # ACoS and CTR: 2 decimal points with percentage sign
+            num_format = '0.00"%"'
             fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
 
         if num_format or fill:

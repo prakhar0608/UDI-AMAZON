@@ -281,7 +281,9 @@ async def fetch_bulk(request: BulkFetchRequest):
         final_results = []
         for res in results:
             slug = sanitize_filename_part(res.profile.display_name)
-            stem = f"{slug}_{run_day}_{report_type}"
+            # Include date range in the filename to distinguish multiple exports
+            date_range_str = f"{start_date}_to_{end_date}" if start_date and end_date else run_day
+            stem = f"{slug}_{date_range_str}_{report_type}"
             out_dir = processed_dir / stem
             export_dataframe(res.wide, out_dir, stem=stem, long_df=res.long_daily)
             final_results.append({

@@ -18,7 +18,8 @@ def pivot_campaigns_wide(df: pd.DataFrame, dates: list[str], report_type: str = 
         # Ensure 'range' and 'subcat' are at the front of meta_cols
         potential_meta = ["range", "subcat", "asin", "sku"]
     else:
-        potential_meta = ["campaign_id", "campaign_name", "ad_group_id", "ad_group_name", "range", "subcat", "asin", "sku", "targeting", "targeting_type"]
+        # Reorder to put Names before IDs for better visual flow in Excel
+        potential_meta = ["campaign_name", "ad_group_name", "campaign_id", "ad_group_id", "range", "subcat", "asin", "sku", "targeting", "targeting_type"]
     
     # If columns are missing but we are in spProducts, we expect they are coming from long_df
     meta_cols = [c for c in potential_meta if c in df.columns]
