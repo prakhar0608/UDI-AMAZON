@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pathlib import Path
@@ -14,7 +15,7 @@ sys.path.append(str(project_root / "src"))
 
 from amazon_ads_app.config import load_app_config, load_profiles
 from amazon_ads_app.profile_cache import load_cache, save_cache, default_cache_path
-from amazon_ads_app.pipeline import run_profile
+from amazon_ads_app.pipeline import run_profile, run_bulk_profiles
 from amazon_ads_app.profile_discovery import discover_all_profiles
 from amazon_ads_app.export import export_dataframe, sanitize_filename_part
 
@@ -118,6 +119,29 @@ async def download_report(filename: str):
         if isinstance(e, HTTPException): raise e
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/reports/preview/{filename:path}")
+async def preview_report(filename: str):
+    """Returns the first 100 rows of a report as JSON for dashboard viewing."""
+    try:
+        app_cfg = load_app_config()
+        processed_dir = app_cfg.project_root / "data" / "processed"
+        file_path = processed_dir / filename
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        df = pd.read_csv(file_path)
+        # Handle cases with too few rows gracefully
+        preview_data = df.head(100).fillna('').to_dict(orient="records")
+        return {
+            "columns": df.columns.tolist(),
+            "data": preview_data,
+            "total_rows": len(df)
+        }
+    except Exception as e:
+        if isinstance(e, HTTPException): raise e
+        raise HTTPException(status_code=500, detail=f"Failed to parse report: {e}")
+
 @app.get("/api/analytics/client/{profile_id}")
 async def get_client_analytics(profile_id: int):
     try:
@@ -190,24 +214,17 @@ async def fetch_report(
         profile = next((p for p in cached.profiles if p.id == profile_id), None)
         if not profile: raise HTTPException(status_code=404, detail="Profile not found")
         
-        fetch_days = days
-        if mtd:
-            today = datetime.now(timezone.utc)
-            fetch_days = today.day
+        # Priority: Explicit range > MTD > Days
+        result = run_profile(
+            app_cfg, 
+            profile, 
+            report_type=report_type, 
+            days=days,
+            mtd=mtd,
+            start_date=start_date,
+            end_date=end_date
+        )
         
-        # If start_date is provided, we'll calculate days from today back to start_date
-        if start_date:
-            try:
-                # Assuming start_date is YYYY-MM-DD
-                sd = datetime.strptime(start_date, "%Y-%m-%d").date()
-                today = datetime.now(timezone.utc).date()
-                fetch_days = (today - sd).days + 1
-                if fetch_days < 1: fetch_days = 1
-                if fetch_days > 60: fetch_days = 60 # Safety cap
-            except:
-                pass
-
-        result = run_profile(app_cfg, profile, report_type=report_type, days=fetch_days)
         processed_dir = app_cfg.project_root / "data" / "processed"
         slug = sanitize_filename_part(profile.display_name)
         run_day = datetime.now(timezone.utc).date().isoformat()
@@ -218,7 +235,64 @@ async def fetch_report(
         return {
             "status": "success", "run_id": result.run_id, 
             "csv_name": f"{stem}/{stem}.csv", "xlsx_name": f"{stem}/{stem}.xlsx",
-            "report_type": report_type, "days_fetched": fetch_days
+            "report_type": report_type,
+            "start_date": result.start_date,
+            "end_date": result.end_date
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class BulkFetchRequest(BaseModel):
+    ids: list[int]
+    report_type: str = "spCampaigns"
+    start_date: str | None = None
+    end_date: str | None = None
+
+@app.post("/api/fetch-bulk")
+async def fetch_bulk(request: BulkFetchRequest):
+    """Runs synthesis for multiple profiles in parallel for maximum speed."""
+    ids = request.ids
+    report_type = request.report_type
+    start_date = request.start_date
+    end_date = request.end_date
+    try:
+        app_cfg = load_app_config()
+        cache_path = default_cache_path(app_cfg.project_root)
+        cached = load_cache(cache_path)
+        target_profiles = [p for p in cached.profiles if p.id in ids]
+        
+        if not target_profiles:
+            return {"status": "error", "message": "No valid profiles found"}
+
+        days = 7
+
+        results = run_bulk_profiles(
+            app_cfg,
+            target_profiles,
+            days=days,
+            report_type=report_type,
+            explicit_start_date=start_date,
+            explicit_end_date=end_date,
+        )
+        
+        processed_dir = app_cfg.project_root / "data" / "processed"
+        run_day = datetime.now(timezone.utc).date().isoformat()
+        
+        final_results = []
+        for res in results:
+            slug = sanitize_filename_part(res.profile.display_name)
+            stem = f"{slug}_{run_day}_{report_type}"
+            out_dir = processed_dir / stem
+            export_dataframe(res.wide, out_dir, stem=stem, long_df=res.long_daily)
+            final_results.append({
+                "profile": res.profile.display_name,
+                "csv_name": f"{stem}/{stem}.csv",
+                "xlsx_name": f"{stem}/{stem}.xlsx"
+            })
+            
+        return {
+            "status": "success",
+            "results": final_results
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -20,14 +20,12 @@ MAX_POLL_ATTEMPTS_SAFETY: Final[int] = 500
 
 def compute_poll_interval_seconds(attempt_index: int, *, jitter_max: float | None = None) -> float:
     """
-    Staged backoff: 5,8,12 then 20,25,30 then steady 45-60s, plus jitter.
-    attempt_index is 0-based (first sleep after attempt 0 status check uses index 0).
+    Aggressive polling for faster results: Fixed 5s for first 30 attempts (2.5 mins).
+    Amazon reports typically ready in 20-90s.
     """
     jm = POLL_JITTER_MAX_SECONDS if jitter_max is None else jitter_max
-    if attempt_index < 3:
-        base = (5.0, 8.0, 12.0)[attempt_index]
-    elif attempt_index < 6:
-        base = (20.0, 25.0, 30.0)[attempt_index - 3]
+    if attempt_index < 30:
+        base = 5.0
     else:
-        base = 45.0 + float((attempt_index - 6) % 16)
+        base = 15.0 + float((attempt_index - 30) % 10)
     return base + random.uniform(0.0, jm)

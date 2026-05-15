@@ -15,15 +15,18 @@ import pandas as pd
 from amazon_ads_app.api_client import AdsApiClient
 from amazon_ads_app.auth import LwaTokenProvider
 from amazon_ads_app.config import AppConfig, ProfileConfig
-from amazon_ads_app.date_windows import safe_last_n_days
+from amazon_ads_app.date_windows import safe_last_n_days, date_range_from_strings
 from amazon_ads_app.export import sanitize_filename_part
 from amazon_ads_app.metrics import aggregate_campaign_daily
 from amazon_ads_app.parse_report import parse_report_payload_with_meta
 from amazon_ads_app.pivot_wide import pivot_campaigns_wide
 from amazon_ads_app.regions import base_url_for_region
 from amazon_ads_app.report_config import MAX_POLL_MINUTES
-from amazon_ads_app.reports_v3 import run_report_pipeline, create_sp_daily_report, decompress_if_gzip
+from amazon_ads_app.reports_v3 import run_report_pipeline, create_sp_daily_report, decompress_if_gzip, get_report_status, download_report_url
 from amazon_ads_app.asin_ranges import load_asin_ranges, apply_asin_ranges
+from amazon_ads_app.report_config import compute_poll_interval_seconds
+import concurrent.futures
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +196,8 @@ def run_bulk_profiles(
     days: int = 5,
     max_poll_minutes: float | None = None,
     report_type: str = "spCampaigns",
+    explicit_start_date: str | None = None,
+    explicit_end_date: str | None = None,
 ) -> list[PipelineResult]:
     """
     Fetch and aggregate data for multiple profiles by creating all reports upfront,
@@ -214,7 +219,11 @@ def run_bulk_profiles(
     # Step 1: Create reports
     for p in profiles:
         try:
-            start_date, end_date, dates, tz_used = safe_last_n_days(days, p.timezone)
+            if explicit_start_date and explicit_end_date:
+                start_date, end_date, dates = date_range_from_strings(explicit_start_date, explicit_end_date)
+                tz_used = p.timezone or "UTC"
+            else:
+                start_date, end_date, dates, tz_used = safe_last_n_days(days, p.timezone)
             run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + uuid.uuid4().hex[:8]
             base = base_url_for_region(p.region)
             
@@ -242,89 +251,84 @@ def run_bulk_profiles(
         except Exception as e:
             progress("error", f"Failed to start {report_type} report for {p.display_name} ({p.region}): {e}")
 
-    # Step 2: Poll concurrently
+    # Step 2: Poll concurrently using ThreadPoolExecutor
     if pending_jobs:
-        from amazon_ads_app.report_config import compute_poll_interval_seconds
-        from amazon_ads_app.reports_v3 import get_report_status, download_report_url
-        import time
-
         poll_t0 = time.monotonic()
         mp = float(max_poll_minutes if max_poll_minutes is not None else MAX_POLL_MINUTES)
         attempt = 0
-        
-        # Track when to retry each job specifically if throttled
         retry_after_map: dict[str, float] = {}
         
+        def process_job(job):
+            p = job["profile"]
+            rid = job["report_id"]
+            
+            if rid in retry_after_map and time.monotonic() < retry_after_map[rid]:
+                return "pending", job
+
+            try:
+                with AdsApiClient(job["base_url"], app.lwa_client_id, token_provider, profile_id=p.id) as client:
+                    st_res = get_report_status(client, rid)
+                
+                status = (st_res.get("status") or st_res.get("processingStatus") or "").upper()
+                if status in ("COMPLETED", "SUCCESS"):
+                    url = st_res.get("url") or (st_res.get("location") if isinstance(st_res.get("location"), str) else None)
+                    if not url and isinstance(st_res.get("completionDetails"), dict):
+                        url = st_res["completionDetails"].get("url")
+                    
+                    if url:
+                        raw_bytes = download_report_url(url)
+                        job["raw_dir"].mkdir(parents=True, exist_ok=True)
+                        json_path = job["raw_dir"] / f"sp_{report_type}_{job['run_id']}.json"
+                        json_path.write_bytes(decompress_if_gzip(raw_bytes))
+                        
+                        wide, long_df, fallback = _build_dataframes_from_payload(
+                            raw_bytes, job["dates"], p, lambda s, d: None, report_type=report_type
+                        )
+                        slug = sanitize_filename_part(p.display_name)
+                        stem = f"{slug}_{run_day}_{report_type}"
+                        
+                        return "success", PipelineResult(
+                            run_id=job["run_id"],
+                            profile=p,
+                            start_date=job["start_date"],
+                            end_date=job["end_date"],
+                            dates=job["dates"],
+                            wide=wide,
+                            long_daily=long_df,
+                            raw_dir=job["raw_dir"],
+                            json_path=json_path,
+                            csv_name=f"{stem}.csv",
+                            xlsx_name=f"{stem}.xlsx",
+                            timezone_used=job["tz_used"],
+                            used_missing_date_fallback=fallback,
+                            report_type=report_type,
+                        )
+                elif status in ("FAILURE", "FAILED", "CANCELLED"):
+                    return "error", f"Report failed for {p.display_name}: {st_res}"
+                else:
+                    return "pending", job
+            except Exception as e:
+                msg = str(e)
+                if "429" in msg or "Throttled" in msg:
+                    retry_after_map[rid] = time.monotonic() + 30.0
+                    return "pending", job
+                return "error", f"Error for {p.display_name}: {e}"
+
         while pending_jobs and (time.monotonic() - poll_t0 < mp * 60):
             progress("poll", f"Polling {len(pending_jobs)} pending {report_type} reports (Attempt {attempt+1})...")
             still_pending = []
-            now = time.monotonic()
             
-            for job in pending_jobs:
-                p = job["profile"]
-                rid = job["report_id"]
-                
-                # Check if this job is in cooldown
-                if rid in retry_after_map and now < retry_after_map[rid]:
-                    still_pending.append(job)
-                    continue
-
-                try:
-                    with AdsApiClient(job["base_url"], app.lwa_client_id, token_provider, profile_id=p.id) as client:
-                        st_res = get_report_status(client, rid)
-                    
-                    status = (st_res.get("status") or st_res.get("processingStatus") or "").upper()
-                    if status in ("COMPLETED", "SUCCESS"):
-                        url = st_res.get("url") or (st_res.get("location") if isinstance(st_res.get("location"), str) else None)
-                        if not url and isinstance(st_res.get("completionDetails"), dict):
-                            url = st_res["completionDetails"].get("url")
-                        
-                        if url:
-                            progress("download", f"Downloading {report_type} for {p.display_name} ({p.region})")
-                            raw_bytes = download_report_url(url)
-                            
-                            # Save to disk as well
-                            job["raw_dir"].mkdir(parents=True, exist_ok=True)
-                            json_path = job["raw_dir"] / f"sp_{report_type}_{job['run_id']}.json"
-                            json_path.write_bytes(decompress_if_gzip(raw_bytes))
-                            
-                            wide, long_df, fallback = _build_dataframes_from_payload(
-                                raw_bytes, job["dates"], p, lambda s, d: None, report_type=report_type
-                            )
-                            slug = sanitize_filename_part(p.display_name)
-                            stem = f"{slug}_{run_day}_{report_type}"
-                            results.append(PipelineResult(
-                                run_id=job["run_id"],
-                                profile=p,
-                                start_date=job["start_date"],
-                                end_date=job["end_date"],
-                                dates=job["dates"],
-                                wide=wide,
-                                long_daily=long_df,
-                                raw_dir=job["raw_dir"],
-                                json_path=json_path,
-                                csv_name=f"{stem}.csv",
-                                xlsx_name=f"{stem}.xlsx",
-                                timezone_used=job["tz_used"],
-                                used_missing_date_fallback=fallback,
-                                report_type=report_type,
-                            ))
-                        else:
-                            progress("error", f"Report for {p.region} completed but no URL found.")
-                    elif status in ("FAILURE", "FAILED", "CANCELLED"):
-                        progress("error", f"Report for {p.region} failed: {st_res}")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                future_to_job = {executor.submit(process_job, job): job for job in pending_jobs}
+                for future in concurrent.futures.as_completed(future_to_job):
+                    res_type, data = future.result()
+                    if res_type == "success":
+                        results.append(data)
+                        progress("download", f"Synthesis complete for {data.profile.display_name}")
+                    elif res_type == "error":
+                        progress("error", data)
                     else:
-                        still_pending.append(job)
-                except Exception as e:
-                    msg = str(e)
-                    if "429" in msg or "Throttled" in msg:
-                        # Keep it for retry, but add to cooldown
-                        still_pending.append(job)
-                        # Wait at least 60s for a 429
-                        retry_after_map[rid] = time.monotonic() + 60.0
-                        progress("error", f"Error polling {p.region} (Throttled): {e}. Will retry after cooldown.")
-                    else:
-                        progress("error", f"Error polling {p.region}: {e}")
+                        still_pending.append(data)
             
             pending_jobs = still_pending
             if pending_jobs:
@@ -361,10 +365,13 @@ def run_profile(
     *,
     progress: ProgressCallback = _noop,
     days: int = 5,
+    mtd: bool = False,
     resume_report_id: str | None = None,
     resume_raw_dir: Path | None = None,
     max_poll_minutes: float | None = None,
     report_type: str = "spCampaigns",
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> PipelineResult:
     if profile.id <= 0:
         raise ValueError("Invalid advertising profile id.")
@@ -373,7 +380,23 @@ def run_profile(
     if not str(profile.display_name).strip():
         raise ValueError("Profile display_name is required.")
 
-    start_date, end_date, dates, tz_used = safe_last_n_days(days, profile.timezone)
+    if start_date and end_date:
+        # Use provided dates
+        sd_obj = datetime.strptime(start_date, "%Y-%m-%d").date()
+        ed_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
+        dates: list[str] = []
+        cur = sd_obj
+        while cur <= ed_obj:
+            dates.append(cur.isoformat())
+            cur += timedelta(days=1)
+        tz_used = profile.timezone or "UTC"
+    elif mtd:
+        from amazon_ads_app.date_windows import mtd_till_yesterday
+        start_date, end_date, dates = mtd_till_yesterday(profile.timezone or "UTC")
+        tz_used = profile.timezone or "UTC"
+    else:
+        start_date, end_date, dates, tz_used = safe_last_n_days(days, profile.timezone)
+    
     slug = sanitize_filename_part(profile.display_name)
 
     if resume_report_id:

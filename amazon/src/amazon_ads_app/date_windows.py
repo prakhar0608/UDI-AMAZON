@@ -83,3 +83,16 @@ def mtd_till_yesterday(zone_name: str = "Asia/Kolkata") -> tuple[str, str, list[
         dates.append(cur.isoformat())
         cur += timedelta(days=1)
     return start.isoformat(), yesterday.isoformat(), dates
+
+
+def date_range_from_strings(start_str: str, end_str: str) -> tuple[str, str, list[str]]:
+    """Generate an ordered list of date strings from explicit start/end ISO date strings."""
+    from datetime import date as _date
+    start = _date.fromisoformat(start_str)
+    end = _date.fromisoformat(end_str)
+    dates: list[str] = []
+    cur = start
+    while cur <= end:
+        dates.append(cur.isoformat())
+        cur += timedelta(days=1)
+    return start_str, end_str, dates

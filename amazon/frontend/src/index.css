@@ -1,90 +1,63 @@
 @import "tailwindcss";
 
 @theme {
-  --color-amazon-orange: #FF9900;
-  --color-amazon-dark: #131921;
-  --color-amazon-light: #232F3E;
-  --color-ai-neon: #0ea5e9; /* Professional Blue */
-  --color-ai-purple: #8b5cf6;
+  /* Amazon-Inspired Palette for Unbundl */
+  --color-un-primary: #000000;   /* Black */
+  --color-un-amazon: #ff9900;    /* Amazon Orange */
+  --color-un-slate: #f8fafc;     /* Light base */
+  --color-un-border: #e2e8f0;    /* Soft border */
+  
+  --background-image-un-grid: radial-gradient(circle at 1px 1px, rgba(35, 47, 62, 0.05) 1px, transparent 0);
+  --background-image-un-gradient: linear-gradient(180deg, #ffffff 0%, #ffffff 100%); 
 }
 
-@utility glass {
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(0, 0, 0, 0.05);
+@layer base {
+  body {
+    @apply bg-white text-slate-900 antialiased selection:bg-un-amazon/20;
+    font-family: 'Outfit', sans-serif;
+  }
 }
 
-@utility glass-card {
-  @apply glass rounded-2xl p-6 shadow-sm transition-all duration-300;
+@layer components {
+  .un-card {
+    @apply bg-white border border-slate-200 rounded-[2.5rem] p-10 shadow-[0_10px_40px_rgba(0,0,0,0.03)] transition-all duration-500 hover:shadow-[0_20px_60px_rgba(255,153,0,0.08)] hover:border-un-amazon/30;
+  }
+  
+  .btn-un-primary {
+    @apply relative overflow-hidden bg-un-primary text-white font-black px-12 py-6 rounded-3xl transition-all hover:scale-[1.02] active:scale-[0.98] shadow-[0_20px_40px_rgba(0,0,0,0.2)] hover:bg-slate-900;
+  }
+  
+  .btn-un-amazon {
+    @apply relative overflow-hidden bg-un-amazon text-slate-900 font-black px-12 py-6 rounded-3xl transition-all hover:scale-[1.02] active:scale-[0.98] shadow-[0_20px_40px_rgba(255,153,0,0.3)] hover:shadow-[0_25px_50px_rgba(255,153,0,0.4)];
+  }
+
+  .un-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  .un-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-un-amazon/20 rounded-full hover:bg-un-amazon/40;
+  }
 }
 
-:root {
-  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-
-  color-scheme: light;
-  color: #0f172a;
-  background-color: #f8fafc;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+.bg-un-main {
+  background-image: var(--background-image-un-gradient);
 }
 
-/* Professional Grid Background (Light) */
-.bg-ai-grid {
-  background-image: linear-gradient(to right, rgba(14, 165, 233, 0.03) 1px, transparent 1px),
-                    linear-gradient(to bottom, rgba(14, 165, 233, 0.03) 1px, transparent 1px);
-  background-size: 30px 30px;
+.bg-un-grid {
+  background-size: 60px 60px;
+  background-image: var(--background-image-un-grid);
 }
 
-.glass-card:hover {
-  border-color: rgba(14, 165, 233, 0.2);
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+.text-gradient {
+  @apply bg-clip-text text-transparent bg-gradient-to-r from-un-primary via-slate-700 to-un-amazon;
 }
 
-body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
-  @apply bg-slate-50 text-slate-900;
+@keyframes float-subtle {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-5px); }
 }
 
-#root {
-  width: 100%;
-}
-
-/* Subtle Shadows */
-.neon-glow-orange {
-  box-shadow: 0 4px 14px 0 rgba(255, 153, 0, 0.2);
-}
-
-.neon-glow-ai {
-  box-shadow: 0 4px 14px 0 rgba(14, 165, 233, 0.2);
-}
-
-/* Gradients */
-.bg-ai-gradient {
-  background: linear-gradient(135deg, #0ea5e9 0%, #8b5cf6 100%);
-}
-
-.text-ai-gradient {
-  background: linear-gradient(135deg, #0ea5e9 0%, #8b5cf6 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
-}
-.custom-scrollbar::-webkit-scrollbar-track {
-  @apply bg-transparent;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  @apply bg-slate-200 rounded-full;
+.animate-float-subtle {
+  animation: float-subtle 4s ease-in-out infinite;
 }
