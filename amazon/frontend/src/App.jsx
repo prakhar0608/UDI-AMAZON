@@ -39,7 +39,11 @@ import {
   Table as TableIcon,
   LogOut,
   ChevronDown,
-  User
+  User,
+  ChevronLeft,
+  Menu,
+  PanelLeftClose,
+  BarChart3
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -90,6 +94,7 @@ function App() {
   
   const [view, setView] = useState('dashboard');
   const [lastSyncResult, setLastSyncResult] = useState(null);
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const dropdownRef = useRef(null);
 
   useEffect(() => {
@@ -206,37 +211,109 @@ function App() {
     <div className="min-h-screen bg-un-main text-slate-800 flex font-sans overflow-hidden bg-un-grid">
       
       {/* Sidebar */}
-      <aside className="w-28 bg-white border-r border-slate-200 flex flex-col items-center py-12 gap-12 z-40">
-        <div className="relative group cursor-pointer animate-float-subtle">
-          <img src="/amazon_logo.png" className="w-24 h-auto object-contain" alt="Amazon" />
+      <motion.aside 
+        initial={false}
+        animate={{ width: isCollapsed ? 72 : 256 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+        className="fixed left-0 top-0 h-screen bg-white border-r border-slate-200 flex flex-col p-3 z-40 overflow-visible"
+      >
+        {/* Top Section - Logo & Toggle */}
+        <div className="flex flex-col items-center pt-[20px] mb-1 relative w-full">
+          <AnimatePresence mode="wait">
+            {!isCollapsed ? (
+              <motion.div 
+                key="open-header"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -10 }}
+                className="flex items-center justify-between w-full px-3"
+              >
+                <div className="animate-float-subtle">
+                  <img 
+                    src="https://upload.wikimedia.org/wikipedia/commons/a/a9/Amazon_logo.svg" 
+                    className="h-5 w-auto object-contain" 
+                    alt="Amazon" 
+                  />
+                </div>
+                <button 
+                  onClick={() => setIsCollapsed(true)} 
+                  className="p-2 text-slate-400 hover:text-un-amazon hover:bg-slate-50 rounded-xl transition-all"
+                  title="Collapse Sidebar"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+              </motion.div>
+            ) : (
+              <motion.div 
+                key="collapsed-header"
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                className="flex flex-col items-center gap-3 w-full"
+              >
+                <div className="w-[44px] h-[44px] bg-[#FFF3E0] rounded-xl flex items-center justify-center overflow-hidden shadow-sm">
+                  <img 
+                    src="/amazon_smile.jpg" 
+                    style={{ width: '38px', height: 'auto' }} 
+                    className="object-contain opacity-100" 
+                    alt="Smile" 
+                  />
+                </div>
+                <button 
+                  onClick={() => setIsCollapsed(false)} 
+                  className="p-2 text-slate-400 hover:text-un-amazon hover:bg-slate-50 rounded-xl transition-all"
+                  title="Expand Sidebar"
+                >
+                  <Menu size={20} />
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
         
-        <nav className="flex flex-col gap-10">
-          <SidebarLink icon={<LayoutGrid size={24} />} active={view === 'dashboard'} onClick={() => setView('dashboard')} />
-          <SidebarLink icon={<BarChart4 size={24} />} active={view === 'analytics'} onClick={() => setView('analytics')} />
-          <SidebarLink icon={<History size={24} />} active={view === 'reports'} onClick={() => setView('reports')} />
+        {/* Main Nav - Middle */}
+        <nav className="flex flex-col gap-1.5">
+          <SidebarLink icon={<LayoutGrid size={22} />} label="Dashboard" active={view === 'dashboard'} onClick={() => setView('dashboard')} isCollapsed={isCollapsed} />
+          <SidebarLink icon={<BarChart3 size={22} />} label="Analytics" active={view === 'analytics'} onClick={() => setView('analytics')} isCollapsed={isCollapsed} />
+          <SidebarLink icon={<History size={22} />} label="History" active={view === 'reports'} onClick={() => setView('reports')} isCollapsed={isCollapsed} />
         </nav>
         
-        <div className="mt-auto flex flex-col items-center gap-10">
-          <button onClick={handleDiscover} disabled={isDiscovering} className="p-3 text-slate-400 hover:text-un-amazon transition-all" title="Refresh Profiles">
-            {isDiscovering ? <Loader2 size={24} className="animate-spin" /> : <RefreshCw size={24} />}
+        {/* Action Buttons - Bottom */}
+        <div className="mt-auto flex flex-col gap-1.5">
+          <button 
+            onClick={handleDiscover} 
+            disabled={isDiscovering} 
+            className={`flex items-center gap-4 w-full py-3.5 rounded-2xl text-slate-500 hover:text-un-amazon hover:bg-slate-50 transition-all group ${isCollapsed ? 'justify-center px-0' : 'px-5'}`}
+          >
+            <div className="group-hover:rotate-180 transition-transform duration-500">
+              {isDiscovering ? <Loader2 size={22} className="animate-spin" /> : <RefreshCw size={22} />}
+            </div>
+            {!isCollapsed && <span className="text-sm font-bold tracking-tight">Refresh</span>}
           </button>
           
-          <div className="flex flex-col items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-slate-900 flex items-center justify-center text-white font-black text-xs shadow-lg mb-2">
-              UN
-            </div>
-            <button className="flex flex-col items-center gap-1 text-slate-400 hover:text-rose-500 transition-all group">
-              <div className="p-2 rounded-xl group-hover:bg-rose-50 transition-colors">
-                <LogOut size={20} />
+          <button className={`flex items-center gap-4 w-full py-3.5 rounded-2xl text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all ${isCollapsed ? 'justify-center px-0' : 'px-5'}`}>
+            <div className="p-0.5">
+              <div className="w-6 h-6 rounded-lg bg-slate-900 flex items-center justify-center text-white font-black text-[8px] shadow-sm">
+                UN
               </div>
-              <span className="text-[8px] font-black uppercase tracking-widest">Sign Out</span>
-            </button>
-          </div>
-        </div>
-      </aside>
+            </div>
+            {!isCollapsed && <span className="text-sm font-bold tracking-tight">Profile</span>}
+          </button>
 
-      <div className="flex-1 flex flex-col overflow-hidden relative">
+          <button className={`flex items-center gap-4 w-full py-3.5 rounded-2xl text-slate-500 hover:text-rose-500 hover:bg-rose-50 transition-all group ${isCollapsed ? 'justify-center px-0' : 'px-5'}`}>
+            <div className="transition-colors">
+              <LogOut size={22} />
+            </div>
+            {!isCollapsed && <span className="text-sm font-bold tracking-tight">Sign Out</span>}
+          </button>
+        </div>
+      </motion.aside>
+
+      <motion.div 
+        animate={{ marginLeft: isCollapsed ? 72 : 256 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+        className="flex-1 flex flex-col overflow-hidden relative"
+      >
         
         {/* Top Header Section (Searchable Dropdown for Accounts) */}
         <div className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-16 py-8 flex items-center justify-between z-30">
@@ -563,15 +640,33 @@ function App() {
                 </div>
             </div>
         )}
-      </div>
+      </motion.div>
     </div>
   );
 }
 
-function SidebarLink({ icon, active, onClick }) {
+function SidebarLink({ icon, label, active, onClick, isCollapsed }) {
   return (
-    <button onClick={onClick} className={`relative p-6 rounded-[2.5rem] transition-all duration-700 ${active ? 'bg-un-amazon text-slate-900 shadow-2xl shadow-un-amazon/40 scale-110' : 'text-slate-400 hover:text-slate-900 hover:bg-slate-50'}`}>
-      {icon}
+    <button 
+      onClick={onClick} 
+      className={`flex items-center gap-4 w-full py-3.5 rounded-2xl transition-all duration-300 ${
+        active 
+          ? 'bg-un-amazon/10 text-un-amazon shadow-sm' 
+          : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+      } ${isCollapsed ? 'justify-center px-0' : 'px-5'}`}
+    >
+      <div className={`${active ? 'scale-110' : ''} transition-transform`}>
+        {icon}
+      </div>
+      {!isCollapsed && (
+        <motion.span 
+          initial={{ opacity: 0, x: -10 }}
+          animate={{ opacity: 1, x: 0 }}
+          className={`text-sm font-bold tracking-tight ${active ? 'font-black' : ''} whitespace-nowrap`}
+        >
+          {label}
+        </motion.span>
+      )}
     </button>
   );
 }
