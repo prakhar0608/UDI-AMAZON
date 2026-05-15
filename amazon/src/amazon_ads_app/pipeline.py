@@ -105,20 +105,10 @@ def _build_dataframes_from_payload(
     long_df = parsed.dataframe
     
     if report_type == "spProducts":
-        # Remove campaign and ad group IDs/names to ensure aggregation is purely by ASIN/SKU
-        drop_cols = ["campaign_id", "campaign_name", "ad_group_id", "ad_group_name"]
-        long_df = long_df.drop(columns=[c for c in drop_cols if c in long_df.columns])
-        
-        # Apply ASIN Ranges/Subcat if we have ASIN column
-        if "asin" in long_df.columns:
-            # Use absolute path relative to this file's location to find project root
-            project_root = Path(__file__).resolve().parent.parent.parent
-            range_mapping = load_asin_ranges(project_root, profile.id)
-            long_df = apply_asin_ranges(long_df, range_mapping)
-            if range_mapping:
-                _log_progress("mapping", f"Applied {len(range_mapping)} ASIN mappings (range/subcat) from {project_root}/ranges")
-            else:
-                _log_progress("mapping", f"No ASIN mapping found in {project_root}/ranges; defaulted all to '0'")
+        # Keep ONLY asin, date, spend, sales for a clean product-wise view
+        keep_cols = ["asin", "date", "spend", "sales"]
+        long_df = long_df[[c for c in keep_cols if c in long_df.columns]].copy()
+        _log_progress("clean", f"Product-wise filter applied: kept {list(long_df.columns)}")
     
     fallback = False
     _log_progress("parse", f"parsed_rows={len(long_df)} has_row_date={parsed.has_row_date}")

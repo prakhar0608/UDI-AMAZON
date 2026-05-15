@@ -86,9 +86,9 @@ def records_to_dataframe(records: list[dict[str, Any]]) -> pd.DataFrame:
         else:
             cost = _first(row, ("cost", "spend"))
         
-        # Primary for sales is sales14d in V3 to match Amazon Console standard attribution,
-        # fallback to sales7d or sales1d if needed.
-        sales = _first(row, ("sales14d", "sales7d", "sales1d", "sales_14d", "sales_7d", "sales_1d"))
+        # Primary for sales in SP is usually 7d to match Amazon Console default,
+        # fallback to 14d or 1d if needed.
+        sales = _first(row, ("sales7d", "sales_7d", "sales14d", "sales_14d", "sales1d", "sales_1d"))
 
         item: dict[str, Any] = {
             "campaign_id": str(cid) if cid is not None else "",
@@ -117,7 +117,7 @@ def records_to_dataframe(records: list[dict[str, Any]]) -> pd.DataFrame:
     df = pd.DataFrame(out_rows)
     if df.empty:
         return df
-    df["date"] = pd.to_datetime(df["date"], utc=True, errors="coerce").dt.date.astype(str)
+    # Keep date as-is from API (already in profile timezone)
     return df
 
 

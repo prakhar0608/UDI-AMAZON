@@ -123,9 +123,9 @@ def create_sp_daily_report(
         elif report_type == "spTargeting":
             group_by = ["campaign", "adGroup", "targeting"]
         elif report_type == "spProducts":
-            # In V3 spAdvertisedProduct, groupBy must be ['advertiser'].
-            # ASIN-level granularity is achieved by including 'advertisedAsin' in columns.
-            group_by = ["advertiser"]
+            # Group by campaign and adGroup to ensure complete data extraction,
+            # we will aggregate it strictly by ASIN in the pipeline.
+            group_by = ["campaign", "adGroup"]
         else:
             group_by = ["campaign"]
 
