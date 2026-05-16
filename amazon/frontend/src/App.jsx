@@ -59,6 +59,172 @@ import {
 // Dynamic API Base
 const API_BASE = `http://${window.location.hostname}:8000/api`;
 
+const Counter = ({ value, prefix = "", suffix = "", decimals = 0 }) => {
+  const [displayValue, setDisplayValue] = useState(0);
+  
+  useEffect(() => {
+    let start = 0;
+    const end = parseFloat(value);
+    const duration = 1000;
+    const increment = end / (duration / 16);
+    
+    const timer = setInterval(() => {
+      start += increment;
+      if (start >= end) {
+        setDisplayValue(end);
+        clearInterval(timer);
+      } else {
+        setDisplayValue(start);
+      }
+    }, 16);
+    
+    return () => clearInterval(timer);
+  }, [value]);
+
+  return (
+    <span>
+      {prefix}
+      {displayValue.toLocaleString(undefined, {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+      })}
+      {suffix}
+    </span>
+  );
+};
+
+const KPICard = ({ title, value, change, isPositive, prefix = "", suffix = "", decimals = 0, sparklineData }) => {
+  return (
+    <motion.div 
+      whileHover={{ y: -2 }}
+      className="un-card-compact flex flex-col gap-1 group cursor-pointer"
+    >
+      <div className="flex justify-between items-start">
+        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{title}</span>
+        <div className={`flex items-center gap-0.5 text-[10px] font-bold ${isPositive ? 'text-emerald-500' : 'text-rose-500'}`}>
+          {isPositive ? '↑' : '↓'} {Math.abs(change)}%
+        </div>
+      </div>
+      <div className="text-xl font-black text-slate-900">
+        <Counter value={value} prefix={prefix} suffix={suffix} decimals={decimals} />
+      </div>
+      <div className="flex items-center justify-between mt-1">
+        <span className="text-[9px] text-slate-400 font-medium">vs yesterday</span>
+        <div className="h-6 w-16 opacity-40 group-hover:opacity-100 transition-opacity">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={sparklineData}>
+              <Area 
+                type="monotone" 
+                dataKey="val" 
+                stroke={isPositive ? '#10b981' : '#f43f5e'} 
+                fill={isPositive ? '#10b98120' : '#f43f5e20'} 
+                strokeWidth={1.5} 
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+const TrendChart = ({ data }) => {
+  const [activeTab, setActiveTab] = useState('spend');
+  
+  const tabs = [
+    { id: 'spend', label: 'Spend', color: '#ff9900', prefix: '$' },
+    { id: 'sales', label: 'Sales', color: '#10b981', prefix: '$' },
+    { id: 'roas', label: 'ROAS', color: '#3b82f6', suffix: 'x' },
+    { id: 'acos', label: 'ACOS', color: '#ef4444', suffix: '%' },
+  ];
+
+  const activeColor = tabs.find(t => t.id === activeTab).color;
+
+  return (
+    <div className="un-card !p-6 flex flex-col gap-6">
+      <div className="flex justify-between items-center">
+        <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
+          <Activity size={16} className="text-un-amazon" /> Performance Trends
+        </h3>
+        <div className="flex bg-slate-50 p-1 rounded-lg border border-slate-200">
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-3 py-1.5 text-[10px] font-black rounded-md transition-all ${
+                activeTab === tab.id 
+                  ? 'bg-white text-slate-900 shadow-sm border border-slate-200' 
+                  : 'text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      
+      <div className="h-[250px] w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={data}>
+            <defs>
+              <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={activeColor} stopOpacity={0.1}/>
+                <stop offset="95%" stopColor={activeColor} stopOpacity={0}/>
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+            <XAxis 
+              dataKey="day" 
+              axisLine={false} 
+              tickLine={false} 
+              tick={{fontSize: 10, fontWeight: 700, fill: '#94a3b8'}} 
+              dy={10}
+            />
+            <YAxis 
+              axisLine={false} 
+              tickLine={false} 
+              tick={{fontSize: 10, fontWeight: 700, fill: '#94a3b8'}}
+            />
+            <Tooltip 
+              contentStyle={{ 
+                borderRadius: '12px', 
+                border: '1px solid #e2e8f0', 
+                boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                fontSize: '11px',
+                fontWeight: 'bold'
+              }}
+            />
+            <Area 
+              type="monotone" 
+              dataKey={activeTab} 
+              stroke={activeColor} 
+              strokeWidth={3} 
+              fillOpacity={1} 
+              fill="url(#chartGradient)" 
+              animationDuration={1500}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+};
+
+const InsightCard = ({ title, value, icon: Icon, colorClass }) => (
+  <motion.div 
+    whileHover={{ y: -2 }}
+    className="un-card-compact !p-4 flex items-center gap-4 cursor-pointer"
+  >
+    <div className={`p-2.5 rounded-lg ${colorClass} bg-opacity-10 shadow-sm`}>
+      <Icon size={16} className={colorClass.replace('bg-', 'text-')} />
+    </div>
+    <div>
+      <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{title}</div>
+      <div className="text-sm font-black text-slate-900">{value}</div>
+    </div>
+  </motion.div>
+);
+
 const REPORT_LEVELS = [
   { id: 'spCampaigns', label: 'CAMPAIGN', icon: <Target size={24} />, desc: 'CAMPAIGN LAYER' },
   { id: 'spAdGroups', label: 'AD GROUP', icon: <Layers size={24} />, desc: 'AD GROUP LAYER' },
@@ -96,6 +262,26 @@ function App() {
   const [lastSyncResult, setLastSyncResult] = useState(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const dropdownRef = useRef(null);
+
+  const mockKPIData = [
+    { title: 'Spend', value: 12450.80, change: 8.2, isPositive: false, prefix: "$", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
+    { title: 'Sales', value: 58920.45, change: 12.4, isPositive: true, prefix: "$", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
+    { title: 'ROAS', value: 4.73, change: 4.1, isPositive: true, suffix: "x", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
+    { title: 'ACOS', value: 21.13, change: 2.3, isPositive: true, suffix: "%", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
+    { title: 'CTR', value: 0.89, change: 1.2, isPositive: true, suffix: "%", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
+    { title: 'CPC', value: 1.12, change: 0.5, isPositive: false, prefix: "$", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
+    { title: 'CVR', value: 9.42, change: 0.8, isPositive: true, suffix: "%", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
+  ];
+
+  const trendData = [
+    { day: "Mon", spend: 1240, sales: 5800, roas: 4.6, acos: 21.3 },
+    { day: "Tue", spend: 1450, sales: 6200, roas: 4.2, acos: 23.1 },
+    { day: "Wed", spend: 1100, sales: 5400, roas: 4.9, acos: 20.4 },
+    { day: "Thu", spend: 1680, sales: 8400, roas: 5.2, acos: 18.2 },
+    { day: "Fri", spend: 1320, sales: 6100, roas: 4.6, acos: 21.5 },
+    { day: "Sat", spend: 980, sales: 4900, roas: 5.0, acos: 19.8 },
+    { day: "Sun", spend: 1150, sales: 5600, roas: 4.8, acos: 20.2 },
+  ];
 
   useEffect(() => {
     fetchProfiles();
@@ -249,16 +435,8 @@ function App() {
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.8 }}
-                className="flex flex-col items-center gap-3 w-full"
+                className="flex flex-col items-center w-full"
               >
-                <div className="w-[44px] h-[44px] bg-[#FFF3E0] rounded-xl flex items-center justify-center overflow-hidden shadow-sm">
-                  <img 
-                    src="/amazon_smile.jpg" 
-                    style={{ width: '38px', height: 'auto' }} 
-                    className="object-contain opacity-100" 
-                    alt="Smile" 
-                  />
-                </div>
                 <button 
                   onClick={() => setIsCollapsed(false)} 
                   className="p-2 text-slate-400 hover:text-un-amazon hover:bg-slate-50 rounded-xl transition-all"
@@ -316,13 +494,13 @@ function App() {
       >
         
         {/* Top Header Section (Searchable Dropdown for Accounts) */}
-        <div className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-16 py-8 flex items-center justify-between z-30">
-          <div className="flex items-center gap-8">
+        <div className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-10 py-4 flex items-center justify-between z-30">
+          <div className="flex items-center gap-6">
             <div className="text-left">
-              <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">System Status</div>
-              <div className="text-sm font-black text-emerald-600 flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                ONLINE
+              <div className="text-[9px] font-black uppercase tracking-widest text-slate-400">System Status</div>
+              <div className="text-xs font-black text-emerald-600 flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                OPERATIONAL
               </div>
             </div>
           </div>
@@ -330,18 +508,18 @@ function App() {
           <div className="relative" ref={dropdownRef}>
             <button 
               onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
-              className="flex items-center gap-6 px-8 py-4 bg-slate-50 border border-slate-200 rounded-2xl hover:border-un-amazon/40 transition-all group"
+              className="flex items-center gap-4 px-5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl hover:border-un-amazon/40 transition-all group"
             >
-              <div className="w-10 h-10 rounded-xl bg-un-amazon/10 text-un-amazon flex items-center justify-center">
-                <User size={20} />
+              <div className="w-8 h-8 rounded-lg bg-un-amazon/10 text-un-amazon flex items-center justify-center">
+                <User size={16} />
               </div>
               <div className="text-left">
-                <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Target Accounts</div>
-                <div className="text-sm font-black text-slate-900">
-                  {selectedIds.length === 0 ? "Select Accounts" : `${selectedIds.length} Accounts Selected`}
+                <div className="text-[9px] font-black uppercase tracking-widest text-slate-400">Target Accounts</div>
+                <div className="text-xs font-black text-slate-900">
+                  {selectedIds.length === 0 ? "Select Accounts" : `${selectedIds.length} Selected`}
                 </div>
               </div>
-              <ChevronDown size={20} className={`text-slate-300 transition-transform ${isAccountDropdownOpen ? 'rotate-180' : ''}`} />
+              <ChevronDown size={16} className={`text-slate-300 transition-transform ${isAccountDropdownOpen ? 'rotate-180' : ''}`} />
             </button>
 
             <AnimatePresence>
@@ -395,48 +573,48 @@ function App() {
         </div>
 
         {/* Dashboard */}
-        <main className="flex-1 overflow-y-auto p-16 un-scrollbar">
+        <main className="flex-1 overflow-y-auto p-10 un-scrollbar bg-white/50">
           <AnimatePresence mode="wait">
             {view === 'dashboard' && (
               <motion.div
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="max-w-7xl mx-auto space-y-16"
+                className="max-w-[1600px] mx-auto space-y-8"
               >
-                <header className="flex justify-between items-start">
-                  <div className="space-y-6">
-                    <div className="inline-flex items-center gap-3 px-5 py-2 bg-slate-100 rounded-full border border-slate-200">
-                      <Sparkles size={14} className="text-un-amazon" />
-                      <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Decision Intelligence Platform</span>
+                <header className="flex justify-between items-end border-b border-slate-100 pb-6">
+                  <div className="space-y-3">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 bg-slate-100/50 rounded-full border border-slate-200">
+                      <Sparkles size={12} className="text-un-amazon" />
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Enterprise Ad Intelligence</span>
                     </div>
-                    <h1 className="text-[5.5rem] font-black tracking-tight leading-[0.85] text-slate-900">
-                      Amazon <br/> <span className="text-gradient">Intelligence</span>
+                    <h1 className="text-5xl font-black tracking-tight leading-none text-slate-900">
+                      Amazon <span className="text-gradient">Intelligence</span>
                     </h1>
                   </div>
 
                   {lastSyncResult && (
                     <motion.div 
-                      initial={{ opacity: 0, scale: 0.9 }}
+                      initial={{ opacity: 0, scale: 0.95 }}
                       animate={{ opacity: 1, scale: 1 }}
-                      className="un-card !p-8 bg-slate-900 flex items-center gap-8 text-white border-un-amazon/20"
+                      className="un-card-compact !py-3 !px-5 bg-slate-900 flex items-center gap-4 text-white border-un-amazon/20 shadow-xl shadow-un-amazon/10"
                     >
-                      <div className="w-16 h-16 bg-un-amazon rounded-3xl flex items-center justify-center shadow-2xl shadow-un-amazon/20">
-                        <Download size={32} className="text-slate-900" />
+                      <div className="w-10 h-10 bg-un-amazon rounded-xl flex items-center justify-center">
+                        <Download size={20} className="text-slate-900" />
                       </div>
                       <div>
-                        <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Extraction Finalized</div>
+                        <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Sync Complete</div>
                         <div className="flex gap-4">
                             <button 
                             onClick={() => handleDownload(lastSyncResult.xlsx_name)}
-                            className="text-lg font-black hover:text-un-amazon transition-colors flex items-center gap-2 group"
+                            className="text-xs font-black hover:text-un-amazon transition-colors flex items-center gap-1 group"
                             >
-                            EXCEL <ChevronRight size={18} />
+                            EXCEL <ChevronRight size={14} />
                             </button>
                             <button 
                             onClick={() => handlePreview(lastSyncResult.csv_name)}
-                            className="text-lg font-black hover:text-un-amazon transition-colors flex items-center gap-2 group"
+                            className="text-xs font-black hover:text-un-amazon transition-colors flex items-center gap-1 group"
                             >
-                            PREVIEW <Eye size={18} />
+                            PREVIEW <Eye size={14} />
                             </button>
                         </div>
                       </div>
@@ -444,70 +622,102 @@ function App() {
                   )}
                 </header>
 
-                <div className="grid grid-cols-12 gap-10">
-                  <div className="col-span-12 un-card">
-                    <div className="flex items-center gap-4 mb-12">
-                      <div className="p-3 bg-un-amazon/10 rounded-2xl text-un-amazon">
-                        <Calendar size={24} />
+                {/* Executive KPI Strip */}
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+                  {mockKPIData.map((kpi, idx) => (
+                    <KPICard key={idx} {...kpi} sparklineData={kpi.sparkline} />
+                  ))}
+                </div>
+
+                {/* Trend Analytics Section */}
+                <div className="grid grid-cols-12 gap-6 items-start">
+                  <div className="col-span-12 lg:col-span-8">
+                    <TrendChart data={trendData} />
+                  </div>
+                  <div className="col-span-12 lg:col-span-4 grid grid-cols-1 gap-4">
+                    <InsightCard 
+                      title="Best Performing Day" 
+                      value="Thursday" 
+                      icon={Flame} 
+                      colorClass="bg-orange-500" 
+                    />
+                    <InsightCard 
+                      title="Highest ROAS" 
+                      value="5.2x" 
+                      icon={TrendingUp} 
+                      colorClass="bg-emerald-500" 
+                    />
+                    <InsightCard 
+                      title="Lowest ACOS" 
+                      value="18.2%" 
+                      icon={Sparkles} 
+                      colorClass="bg-blue-500" 
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-12 gap-6">
+                  <div className="col-span-12 un-card !p-8">
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="p-2 bg-un-amazon/10 rounded-xl text-un-amazon">
+                        <Calendar size={18} />
                       </div>
-                      <div>
-                        <h3 className="text-xs font-black uppercase tracking-[0.3em] text-slate-400">Date Range</h3>
-                      </div>
+                      <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Date Range Selection</h3>
                     </div>
 
-                    <div className="grid grid-cols-11 items-center gap-6">
-                      <div className="col-span-5 space-y-4">
-                        <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-1">Start Date</label>
+                    <div className="grid grid-cols-11 items-center gap-4">
+                      <div className="col-span-5 space-y-2">
+                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">Start Date</label>
                         <input 
                           type="date" 
                           value={startDate}
                           onChange={(e) => setStartDate(e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-[2rem] py-6 px-10 text-lg font-black focus:border-un-amazon/40 focus:bg-white outline-none transition-all shadow-sm"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-6 text-sm font-black focus:border-un-amazon/40 focus:bg-white outline-none transition-all"
                         />
                       </div>
-                      <div className="col-span-1 flex justify-center mt-8">
-                        <ArrowRight className="text-slate-200" size={32} />
+                      <div className="col-span-1 flex justify-center mt-6">
+                        <ArrowRight className="text-slate-200" size={20} />
                       </div>
-                      <div className="col-span-5 space-y-4">
-                        <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-1">End Date</label>
+                      <div className="col-span-5 space-y-2">
+                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">End Date</label>
                         <input 
                           type="date" 
                           value={endDate}
                           onChange={(e) => setEndDate(e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-[2rem] py-6 px-10 text-lg font-black focus:border-un-amazon/40 focus:bg-white outline-none transition-all shadow-sm"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-6 text-sm font-black focus:border-un-amazon/40 focus:bg-white outline-none transition-all"
                         />
                       </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-10">
+                <div className="grid grid-cols-3 gap-6">
                   {REPORT_LEVELS.map((level) => (
                     <button
                       key={level.id}
                       onClick={() => setSelectedLevel(level.id)}
-                      className={`group relative p-12 rounded-[4.5rem] border-2 transition-all duration-700 ${
+                      className={`group relative p-8 rounded-3xl border-2 transition-all duration-500 ${
                         selectedLevel === level.id 
-                          ? 'bg-white border-un-amazon shadow-2xl shadow-un-amazon/10 -translate-y-2' 
-                          : 'bg-white border-slate-100 hover:border-slate-200 hover:shadow-xl'
+                          ? 'bg-white border-un-amazon shadow-xl shadow-un-amazon/5 -translate-y-1' 
+                          : 'bg-white border-slate-100 hover:border-slate-200 hover:shadow-md'
                       }`}
                     >
                       <div className="flex flex-col items-center text-center">
-                        <div className={`p-6 rounded-[2rem] mb-8 transition-all duration-700 ${selectedLevel === level.id ? 'bg-un-amazon text-slate-900 shadow-xl' : 'bg-slate-50 text-slate-400 group-hover:scale-110'}`}>
+                        <div className={`p-4 rounded-2xl mb-4 transition-all duration-500 ${selectedLevel === level.id ? 'bg-un-amazon text-slate-900 shadow-lg' : 'bg-slate-50 text-slate-400 group-hover:scale-110'}`}>
                           {level.icon}
                         </div>
-                        <div className={`text-[10px] font-black uppercase tracking-[0.3em] mb-3 ${selectedLevel === level.id ? 'text-un-amazon' : 'text-slate-400'}`}>
+                        <div className={`text-[9px] font-black uppercase tracking-widest mb-1 ${selectedLevel === level.id ? 'text-un-amazon' : 'text-slate-400'}`}>
                           {level.desc}
                         </div>
-                        <div className="text-3xl font-black text-slate-900">{level.label}</div>
+                        <div className="text-xl font-black text-slate-900">{level.label}</div>
                       </div>
                     </button>
                   ))}
                 </div>
 
-                <div className="flex flex-col items-center gap-12 pb-24">
-                  <button onClick={runBulkSync} disabled={isBulkRunning || selectedIds.length === 0} className="btn-un-amazon flex items-center gap-8 px-24 py-12 text-3xl group">
-                    {isBulkRunning ? <><Loader2 size={40} className="animate-spin" /> EXPORTING...</> : <><Play size={40} fill="currentColor" className="group-hover:translate-x-3 transition-transform duration-700" /> EXPORT DATA</>}
+                <div className="flex flex-col items-center gap-8 pb-12">
+                  <button onClick={runBulkSync} disabled={isBulkRunning || selectedIds.length === 0} className="btn-un-amazon flex items-center gap-6 px-16 py-6 text-xl group">
+                    {isBulkRunning ? <><Loader2 size={24} className="animate-spin" /> EXPORTING...</> : <><Play size={24} fill="currentColor" className="group-hover:translate-x-2 transition-transform duration-500" /> RUN EXPORT</>}
                   </button>
                 </div>
 
@@ -557,12 +767,12 @@ function App() {
             )}
 
             {view === 'analytics' && (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-16">
-                 <header>
-                  <h1 className="text-6xl font-black tracking-tighter text-slate-900">Intelligence <span className="text-gradient">Analytics</span></h1>
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8 max-w-[1600px] mx-auto">
+                 <header className="border-b border-slate-100 pb-4">
+                  <h1 className="text-4xl font-black tracking-tight text-slate-900">Intelligence <span className="text-gradient">Analytics</span></h1>
                 </header>
-                <div className="grid grid-cols-12 gap-10">
-                  <div className="col-span-12 un-card h-[500px]">
+                <div className="grid grid-cols-12 gap-6">
+                  <div className="col-span-12 un-card h-[400px] !p-6">
                     <ResponsiveContainer width="100%" height="100%">
                         <AreaChart data={rangeData?.ranges || []}>
                           <defs>
@@ -581,44 +791,42 @@ function App() {
                   </div>
                 </div>
               </motion.div>
-            )}
-
-            {view === 'reports' && (
+            )}            {view === 'reports' && (
               <motion.div
-                initial={{ opacity: 0, x: 20 }}
+                initial={{ opacity: 0, x: 10 }}
                 animate={{ opacity: 1, x: 0 }}
-                className="space-y-16"
+                className="space-y-8 max-w-[1600px] mx-auto"
               >
-                <header>
-                  <h1 className="text-6xl font-black tracking-tighter text-slate-900">The <span className="text-un-amazon">Vault</span></h1>
+                <header className="border-b border-slate-100 pb-4">
+                  <h1 className="text-4xl font-black tracking-tight text-slate-900">The <span className="text-un-amazon">Vault</span></h1>
                 </header>
 
-                <div className="un-card !p-0 overflow-hidden border-slate-200">
+                <div className="un-card !p-0 overflow-hidden border-slate-200 shadow-sm">
                   <table className="w-full text-left">
-                    <thead className="bg-slate-50 text-[11px] font-black uppercase tracking-[0.4em] text-slate-400">
+                    <thead className="bg-slate-50 text-[9px] font-black uppercase tracking-widest text-slate-400">
                       <tr>
-                        <th className="px-12 py-10">Classification</th>
-                        <th className="px-12 py-10">Identifier</th>
-                        <th className="px-12 py-10">Generated At</th>
-                        <th className="px-12 py-10 text-right">Action</th>
+                        <th className="px-8 py-4">Classification</th>
+                        <th className="px-8 py-4">Identifier</th>
+                        <th className="px-8 py-4">Generated At</th>
+                        <th className="px-8 py-4 text-right">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {reports.map((r, i) => (
                         <tr key={i} className="group hover:bg-slate-50 transition-colors">
-                          <td className="px-12 py-10">
-                            <span className={`px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] border ${
+                          <td className="px-8 py-4">
+                            <span className={`px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest border ${
                               r.name.includes('Campaigns') ? 'bg-orange-50 border-orange-100 text-orange-600' : 'bg-slate-50 border-slate-200 text-slate-600'
                             }`}>
                               {r.name.includes('Campaigns') ? 'STRATEGIC' : 'DATA'}
                             </span>
                           </td>
-                          <td className="px-12 py-10 font-black text-slate-900 text-xl">{r.name}</td>
-                          <td className="px-12 py-10 text-slate-400 text-sm font-bold">{new Date(r.created_at).toLocaleString()}</td>
-                          <td className="px-12 py-10 text-right">
-                            <div className="flex justify-end gap-6 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button onClick={() => handlePreview(r.csv)} className="p-5 bg-white border border-slate-200 rounded-[1.5rem] hover:text-un-amazon transition-all"><Eye size={24} /></button>
-                              <button onClick={() => handleDownload(r.xlsx)} className="p-5 bg-white border border-slate-200 rounded-[1.5rem] hover:text-emerald-600 transition-all"><FileSpreadsheet size={24} /></button>
+                          <td className="px-8 py-4 font-black text-slate-900 text-lg">{r.name}</td>
+                          <td className="px-8 py-4 text-slate-400 text-xs font-bold">{new Date(r.created_at).toLocaleString()}</td>
+                          <td className="px-8 py-4 text-right">
+                            <div className="flex justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button onClick={() => handlePreview(r.csv)} className="p-3 bg-white border border-slate-200 rounded-xl hover:text-un-amazon transition-all"><Eye size={18} /></button>
+                              <button onClick={() => handleDownload(r.xlsx)} className="p-3 bg-white border border-slate-200 rounded-xl hover:text-emerald-600 transition-all"><FileSpreadsheet size={18} /></button>
                             </div>
                           </td>
                         </tr>
