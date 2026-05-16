@@ -603,17 +603,6 @@ function App() {
         
         {/* Action Buttons - Bottom */}
         <div className="mt-auto flex flex-col gap-1.5">
-          <button 
-            onClick={handleDiscover} 
-            disabled={isDiscovering} 
-            className={`flex items-center gap-4 w-full py-3.5 rounded-2xl text-slate-500 hover:text-un-amazon hover:bg-slate-50 transition-all group ${isCollapsed ? 'justify-center px-0' : 'px-5'}`}
-          >
-            <div className="group-hover:rotate-180 transition-transform duration-500">
-              {isDiscovering ? <Loader2 size={22} className="animate-spin" /> : <RefreshCw size={22} />}
-            </div>
-            {!isCollapsed && <span className="text-sm font-bold tracking-tight">Refresh</span>}
-          </button>
-          
           <button className={`flex items-center gap-4 w-full py-3.5 rounded-2xl text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all ${isCollapsed ? 'justify-center px-0' : 'px-5'}`}>
             <div className="p-0.5">
               <div className="w-6 h-6 rounded-lg bg-slate-900 flex items-center justify-center text-white font-black text-[8px] shadow-sm">
@@ -629,27 +618,6 @@ function App() {
             </div>
             {!isCollapsed && <span className="text-sm font-bold tracking-tight">Sign Out</span>}
           </button>
-
-          {!isCollapsed && (
-            <div className="mt-8 px-5 py-6 bg-slate-50 rounded-[2rem] border border-slate-100 flex flex-col gap-4">
-              <div className="flex items-center gap-3">
-                <Terminal size={14} className="text-un-amazon" />
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">System Console</span>
-              </div>
-              <div className="space-y-3 max-h-[200px] overflow-y-auto un-scrollbar pr-2">
-                {logs.length === 0 && <div className="text-[10px] font-bold text-slate-300 italic">No activity recorded...</div>}
-                {[...logs].reverse().map(log => (
-                  <div key={log.id} className="flex flex-col gap-1">
-                    <div className="flex items-center justify-between">
-                      <span className={`text-[9px] font-black uppercase tracking-tighter ${log.tag === 'ERROR' || log.tag === 'FAIL' ? 'text-rose-500' : 'text-un-amazon'}`}>{log.tag}</span>
-                      <span className="text-[8px] font-bold text-slate-300">{log.time}</span>
-                    </div>
-                    <div className="text-[10px] font-bold text-slate-600 leading-tight break-words">{log.message}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </motion.aside>
 
