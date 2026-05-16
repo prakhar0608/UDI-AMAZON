@@ -19,6 +19,16 @@ from amazon_ads_app.pipeline import run_profile, run_bulk_profiles
 from amazon_ads_app.profile_discovery import discover_all_profiles
 from amazon_ads_app.export import export_dataframe, sanitize_filename_part
 
+# Custom debug logging
+debug_log_path = project_root / "debug.log"
+def debug_log(msg):
+    try:
+        with open(debug_log_path, "a") as f:
+            f.write(f"{datetime.now(timezone.utc).isoformat()} - {msg}\n")
+    except: pass
+
+debug_log("Server (re)started")
+
 app = FastAPI(title="Amazon Ads Pipeline API")
 
 # Setup CORS
@@ -38,11 +48,23 @@ async def root():
 async def get_profiles():
     try:
         app_cfg = load_app_config()
+        
+        # 1. Load from YAML (Manual)
+        manual_profiles = []
+        if app_cfg.profiles_path.exists():
+            manual_profiles = load_profiles(app_cfg.profiles_path)
+            
+        # 2. Load from Cache (Discovered)
         cache_path = default_cache_path(app_cfg.project_root)
         cached = load_cache(cache_path)
-        if not cached or not cached.profiles:
-            return []
-        return [p.__dict__ for p in cached.profiles]
+        discovered_profiles = cached.profiles if cached else []
+        
+        # Merge and dedupe by ID (YAML wins)
+        merged = {p.id: p for p in discovered_profiles}
+        for p in manual_profiles:
+            merged[p.id] = p
+            
+        return [p.__dict__ for p in merged.values()]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -62,8 +84,8 @@ async def discover():
         
         # Save to cache
         cache_path = default_cache_path(app_cfg.project_root)
-        from amazon_ads_app.profile_cache import ProfileCache
-        new_cache = ProfileCache(profiles=profiles, last_discovery=datetime.now(timezone.utc).isoformat())
+        from amazon_ads_app.profile_cache import build_cache_now
+        new_cache = build_cache_now(profiles, errors)
         save_cache(cache_path, new_cache)
         
         return [p.__dict__ for p in profiles]
@@ -211,7 +233,14 @@ async def fetch_report(
         app_cfg = load_app_config()
         cache_path = default_cache_path(app_cfg.project_root)
         cached = load_cache(cache_path)
-        profile = next((p for p in cached.profiles if p.id == profile_id), None)
+        profiles_list = cached.profiles if cached else []
+        
+        # Also check manual profiles if not in cache
+        if not any(p.id == profile_id for p in profiles_list):
+            if app_cfg.profiles_path.exists():
+                profiles_list.extend(load_profiles(app_cfg.profiles_path))
+        
+        profile = next((p for p in profiles_list if p.id == profile_id), None)
         if not profile: raise HTTPException(status_code=404, detail="Profile not found")
         
         # Priority: Explicit range > MTD > Days
@@ -242,38 +271,61 @@ async def fetch_report(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+import threading
+import uuid as _uuid
+
+# In-memory job store
+_jobs: dict[str, dict] = {}
+
 class BulkFetchRequest(BaseModel):
     ids: list[int]
     report_type: str = "spCampaigns"
     start_date: str | None = None
     end_date: str | None = None
 
-@app.post("/api/fetch-bulk")
-async def fetch_bulk(request: BulkFetchRequest):
-    """Runs synthesis for multiple profiles in parallel for maximum speed."""
-    ids = request.ids
-    report_type = request.report_type
-    start_date = request.start_date
-    end_date = request.end_date
+def _run_export_job(job_id: str, ids: list[int], report_type: str, start_date: str | None, end_date: str | None):
+    """Background worker that runs the Amazon report pipeline."""
     try:
+        _jobs[job_id]["status"] = "running"
+        _jobs[job_id]["message"] = "Initializing..."
+        
         app_cfg = load_app_config()
         cache_path = default_cache_path(app_cfg.project_root)
         cached = load_cache(cache_path)
-        target_profiles = [p for p in cached.profiles if p.id in ids]
+        
+        all_profiles = cached.profiles if cached else []
+        if app_cfg.profiles_path.exists():
+            all_profiles.extend(load_profiles(app_cfg.profiles_path))
+            
+        target_profiles = [p for p in all_profiles if p.id in ids]
+        debug_log(f"[JOB {job_id}] Found {len(target_profiles)} target profiles for ids {ids}")
         
         if not target_profiles:
-            return {"status": "error", "message": "No valid profiles found"}
+            _jobs[job_id]["status"] = "failed"
+            _jobs[job_id]["message"] = "No valid profiles found for given IDs."
+            return
 
-        days = 7
+        _jobs[job_id]["message"] = f"Submitting {report_type} report..."
+        
+        def _inner_log(s, m):
+            debug_log(f"[JOB {job_id}][{s.upper()}] {m}")
+            _jobs[job_id]["message"] = f"[{s.upper()}] {m}"
 
         results = run_bulk_profiles(
             app_cfg,
             target_profiles,
-            days=days,
+            progress=_inner_log,
+            days=7,
             report_type=report_type,
             explicit_start_date=start_date,
             explicit_end_date=end_date,
         )
+        debug_log(f"[JOB {job_id}] run_bulk_profiles returned {len(results)} results")
+        
+        if not results:
+            _jobs[job_id]["status"] = "failed"
+            _jobs[job_id]["message"] = "No data returned. The report may have failed on Amazon's side."
+            return
         
         processed_dir = app_cfg.project_root / "data" / "processed"
         run_day = datetime.now(timezone.utc).date().isoformat()
@@ -281,7 +333,6 @@ async def fetch_bulk(request: BulkFetchRequest):
         final_results = []
         for res in results:
             slug = sanitize_filename_part(res.profile.display_name)
-            # Include date range in the filename to distinguish multiple exports
             date_range_str = f"{start_date}_to_{end_date}" if start_date and end_date else run_day
             stem = f"{slug}_{date_range_str}_{report_type}"
             out_dir = processed_dir / stem
@@ -289,15 +340,47 @@ async def fetch_bulk(request: BulkFetchRequest):
             final_results.append({
                 "profile": res.profile.display_name,
                 "csv_name": f"{stem}/{stem}.csv",
-                "xlsx_name": f"{stem}/{stem}.xlsx"
+                "xlsx_name": f"{stem}/{stem}.xlsx",
+                "run_id": res.run_id
             })
-            
-        return {
-            "status": "success",
-            "results": final_results
-        }
+        
+        _jobs[job_id]["status"] = "success"
+        _jobs[job_id]["message"] = f"Export complete. {len(final_results)} report(s) generated."
+        _jobs[job_id]["results"] = final_results
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        debug_log(f"[JOB {job_id}] EXCEPTION: {e}")
+        _jobs[job_id]["status"] = "failed"
+        _jobs[job_id]["message"] = str(e)
+
+@app.post("/api/fetch-bulk")
+async def fetch_bulk(request: BulkFetchRequest):
+    """Starts an export job in the background and returns a job_id immediately."""
+    job_id = _uuid.uuid4().hex[:12]
+    _jobs[job_id] = {
+        "status": "pending",
+        "message": "Job queued...",
+        "results": [],
+        "report_type": request.report_type,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+    }
+    
+    t = threading.Thread(
+        target=_run_export_job,
+        args=(job_id, request.ids, request.report_type, request.start_date, request.end_date),
+        daemon=True,
+    )
+    t.start()
+    
+    debug_log(f"Started background job {job_id} for {request.report_type}")
+    return {"status": "accepted", "job_id": job_id}
+
+@app.get("/api/jobs/{job_id}")
+async def get_job_status(job_id: str):
+    """Poll for a background job's status."""
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
 
 @app.get("/api/analytics/ranges")
 async def get_range_analytics():
