@@ -15,12 +15,17 @@
   body {
     @apply bg-white text-slate-900 antialiased selection:bg-un-amazon/20;
     font-family: 'Outfit', sans-serif;
+    color: #0f172a; /* Dark navy text */
   }
 }
 
 @layer components {
   .un-card {
-    @apply bg-white border border-slate-200 rounded-[2.5rem] p-10 shadow-[0_10px_40px_rgba(0,0,0,0.03)] transition-all duration-500 hover:shadow-[0_20px_60px_rgba(255,153,0,0.08)] hover:border-un-amazon/30;
+    @apply bg-white border border-slate-200 rounded-2xl p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)] transition-all duration-300 hover:shadow-[0_8px_30px_rgba(255,153,0,0.06)] hover:border-un-amazon/30;
+  }
+
+  .un-card-compact {
+    @apply bg-white border border-slate-100 rounded-xl p-4 shadow-sm transition-all duration-300 hover:shadow-md hover:border-un-amazon/20;
   }
   
   .btn-un-primary {
@@ -60,4 +65,16 @@
 
 .animate-float-subtle {
   animation: float-subtle 4s ease-in-out infinite;
+}
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 5px rgba(255, 153, 0, 0); }
+  50% { box-shadow: 0 0 15px rgba(255, 153, 0, 0.2); }
+}
+
+.animate-glow {
+  animation: glow 3s ease-in-out infinite;
+}
+
+.text-navy {
+  color: #0f172a;
 }
