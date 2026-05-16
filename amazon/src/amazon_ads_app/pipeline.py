@@ -100,28 +100,14 @@ def _build_dataframes_from_payload(
     profile: ProfileConfig,
     _log_progress: ProgressCallback,
     report_type: str = "spCampaigns",
+    project_root: Path | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
     parsed = parse_report_payload_with_meta(payload_bytes)
     long_df = parsed.dataframe
     
-    if report_type == "spProducts":
-        # Remove campaign and ad group IDs/names to ensure aggregation is purely by ASIN/SKU
-        drop_cols = ["campaign_id", "campaign_name", "ad_group_id", "ad_group_name"]
-        long_df = long_df.drop(columns=[c for c in drop_cols if c in long_df.columns])
-        
-        # Apply ASIN Ranges/Subcat if we have ASIN column
-        if "asin" in long_df.columns:
-            # Use absolute path relative to this file's location to find project root
-            project_root = Path(__file__).resolve().parent.parent.parent
-            range_mapping = load_asin_ranges(project_root, profile.id)
-            long_df = apply_asin_ranges(long_df, range_mapping)
-            if range_mapping:
-                _log_progress("mapping", f"Applied {len(range_mapping)} ASIN mappings (range/subcat) from {project_root}/ranges")
-            else:
-                _log_progress("mapping", f"No ASIN mapping found in {project_root}/ranges; defaulted all to '0'")
-    
     fallback = False
     _log_progress("parse", f"parsed_rows={len(long_df)} has_row_date={parsed.has_row_date}")
+    
     if not long_df.empty and parsed.has_row_date:
         valid_dates = long_df["date"][(long_df["date"] != "NaT") & (long_df["date"] != "")]
         if not valid_dates.empty:
@@ -129,14 +115,26 @@ def _build_dataframes_from_payload(
         before = len(long_df)
         long_df = long_df[long_df["date"].isin(dates)]
         _log_progress("parse", f"rows_after_window_filter={len(long_df)} from={before}")
-        long_df = aggregate_campaign_daily(long_df)
-        wide = pivot_campaigns_wide(long_df, dates, report_type=report_type)
-        return wide, long_df, fallback
+    elif not long_df.empty:
+        fallback = True
+        long_df, _ = infer_daily_rows_from_missing_date(long_df, dates)
+        _log_progress("warn", "payload has no row-level date; inferring day sequence from row order")
 
-    fallback = True
-    inferred_daily, _ = infer_daily_rows_from_missing_date(long_df, dates)
-    _log_progress("warn", "payload has no row-level date; inferring day sequence from row order")
-    long_df = aggregate_campaign_daily(inferred_daily)
+    # Apply ASIN ranges/subcat mapping if project_root is provided
+    if not long_df.empty and project_root and "asin" in long_df.columns:
+        mapping = load_asin_ranges(project_root, profile.id)
+        if mapping:
+            long_df = apply_asin_ranges(long_df, mapping)
+            _log_progress("enrich", f"Applied ASIN mapping for profile {profile.id}")
+
+    # Apply the product-wise filter AFTER date inference and enrichment
+    if report_type == "spProducts" and not long_df.empty:
+        # Keep everything we might need for the dashboard, including enriched fields
+        keep_cols = ["asin", "range", "subcat", "date", "spend", "sales", "campaign_id", "campaign_name", "ad_group_id", "ad_group_name"]
+        long_df = long_df[[c for c in keep_cols if c in long_df.columns]].copy()
+        _log_progress("clean", f"Product-wise filter applied: kept {list(long_df.columns)}")
+
+    long_df = aggregate_campaign_daily(long_df, report_type=report_type)
     wide = pivot_campaigns_wide(long_df, dates, report_type=report_type)
     return wide, long_df, fallback
 
@@ -165,7 +163,14 @@ def build_result_from_json_artifact(
     elif "spProducts" in json_path.name:
         report_type = "spProducts"
 
-    wide, long_df, fallback = _build_dataframes_from_payload(payload_bytes, dates, profile, _log, report_type=report_type)
+    wide, long_df, fallback = _build_dataframes_from_payload(
+        payload_bytes, 
+        dates, 
+        profile, 
+        _log, 
+        report_type=report_type,
+        project_root=app.project_root
+    )
     slug = sanitize_filename_part(profile.display_name)
     run_day = datetime.now(timezone.utc).date().isoformat()
     
@@ -282,7 +287,12 @@ def run_bulk_profiles(
                         json_path.write_bytes(decompress_if_gzip(raw_bytes))
                         
                         wide, long_df, fallback = _build_dataframes_from_payload(
-                            raw_bytes, job["dates"], p, lambda s, d: None, report_type=report_type
+                            raw_bytes, 
+                            job["dates"], 
+                            p, 
+                            lambda s, d: None, 
+                            report_type=report_type,
+                            project_root=app.project_root
                         )
                         slug = sanitize_filename_part(p.display_name)
                         stem = f"{slug}_{run_day}_{report_type}"
@@ -479,7 +489,14 @@ def run_profile(
     else:
         payload_bytes = artifacts.payload_bytes
         json_path = Path(artifacts.raw_dir) / f"sp_{report_type}_{run_id}.json"
-    wide, long_df, fallback = _build_dataframes_from_payload(payload_bytes, dates, profile, _log_progress, report_type=report_type)
+    wide, long_df, fallback = _build_dataframes_from_payload(
+        payload_bytes, 
+        dates, 
+        profile, 
+        _log_progress, 
+        report_type=report_type,
+        project_root=app.project_root
+    )
     stem = f"{slug}_{run_day}_{report_type}"
     _log_progress("done", f"Prepared dataframe from {json_path}")
 

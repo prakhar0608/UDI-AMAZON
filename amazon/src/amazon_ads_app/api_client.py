@@ -27,7 +27,7 @@ class AdsApiClient:
         self._tokens = token_provider
         self._profile_id = str(profile_id).strip()
         self._timeout = timeout
-        self._client = httpx.Client(timeout=self._timeout)
+        self._client = httpx.Client(timeout=self._timeout, http2=True)
 
     def _headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
         token = self._tokens.get_access_token()

@@ -347,28 +347,68 @@ function App() {
 
     setIsBulkRunning(true);
     setLastSyncResult(null);
+    addLog("START", `Submitting ${selectedLevel} export...`);
 
     try {
-        const res = await axios.post(`${API_BASE}/fetch-bulk`, {
+        // Step 1: Submit the job (returns immediately)
+        const submitRes = await axios.post(`${API_BASE}/fetch-bulk`, {
             ids: selectedIds,
             report_type: selectedLevel,
             start_date: startDate,
             end_date: endDate
-        });
+        }, { timeout: 30000 }); // 30s is plenty for job submission
         
-        if (res.data.status === 'success') {
-            const results = res.data.results;
-            if (results.length > 0) {
-                setLastSyncResult(results[0]);
-                handlePreview(results[0].csv_name);
-            }
+        if (submitRes.data.status !== 'accepted' || !submitRes.data.job_id) {
+            addLog("FAIL", "Server rejected the export request.");
+            setIsBulkRunning(false);
+            return;
         }
+        
+        const jobId = submitRes.data.job_id;
+        addLog("QUEUE", `Job ${jobId} queued. Polling for status...`);
+        
+        // Step 2: Poll for completion
+        let lastMsg = "";
+        const pollInterval = setInterval(async () => {
+            try {
+                const statusRes = await axios.get(`${API_BASE}/jobs/${jobId}`, { timeout: 10000 });
+                const job = statusRes.data;
+                
+                // Show progress updates in the console
+                if (job.message && job.message !== lastMsg) {
+                    lastMsg = job.message;
+                    addLog("SYNC", job.message);
+                }
+                
+                if (job.status === 'success') {
+                    clearInterval(pollInterval);
+                    const results = job.results || [];
+                    if (results.length > 0) {
+                        addLog("SUCCESS", `Extracted data for ${results.length} accounts.`);
+                        setLastSyncResult(results[0]);
+                        handlePreview(results[0].csv_name);
+                    } else {
+                        addLog("WARN", "No data returned for selected window.");
+                    }
+                    setIsBulkRunning(false);
+                    fetchReports();
+                    fetchRangeAnalytics();
+                } else if (job.status === 'failed') {
+                    clearInterval(pollInterval);
+                    addLog("FAIL", job.message || "Export failed.");
+                    setIsBulkRunning(false);
+                    fetchReports();
+                }
+            } catch (pollErr) {
+                // Transient poll error — keep trying
+                console.warn("Poll error:", pollErr);
+            }
+        }, 5000); // Poll every 5 seconds
+        
     } catch (err) {
-        addLog("FAIL", "Bulk process encountered a latency error.");
-    } finally {
+        console.error(err);
+        addLog("FAIL", "Failed to submit export job. Check server.");
         setIsBulkRunning(false);
-        fetchReports();
-        fetchRangeAnalytics();
     }
   };
 
@@ -484,6 +524,27 @@ function App() {
             </div>
             {!isCollapsed && <span className="text-sm font-bold tracking-tight">Sign Out</span>}
           </button>
+
+          {!isCollapsed && (
+            <div className="mt-8 px-5 py-6 bg-slate-50 rounded-[2rem] border border-slate-100 flex flex-col gap-4">
+              <div className="flex items-center gap-3">
+                <Terminal size={14} className="text-un-amazon" />
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">System Console</span>
+              </div>
+              <div className="space-y-3 max-h-[200px] overflow-y-auto un-scrollbar pr-2">
+                {logs.length === 0 && <div className="text-[10px] font-bold text-slate-300 italic">No activity recorded...</div>}
+                {[...logs].reverse().map(log => (
+                  <div key={log.id} className="flex flex-col gap-1">
+                    <div className="flex items-center justify-between">
+                      <span className={`text-[9px] font-black uppercase tracking-tighter ${log.tag === 'ERROR' || log.tag === 'FAIL' ? 'text-rose-500' : 'text-un-amazon'}`}>{log.tag}</span>
+                      <span className="text-[8px] font-bold text-slate-300">{log.time}</span>
+                    </div>
+                    <div className="text-[10px] font-bold text-slate-600 leading-tight break-words">{log.message}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </motion.aside>
 

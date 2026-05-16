@@ -6,6 +6,7 @@ import gzip
 import json
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -115,36 +116,36 @@ def create_sp_daily_report(
     report_type: str = "spCampaigns",
     group_by: list[str] | None = None,
 ) -> str:
-    if group_by is None:
-        if report_type == "spCampaigns":
-            group_by = ["campaign"]
-        elif report_type == "spAdGroups":
-            group_by = ["campaign", "adGroup"]
-        elif report_type == "spTargeting":
-            group_by = ["campaign", "adGroup", "targeting"]
-        elif report_type == "spProducts":
-            # In V3 spAdvertisedProduct, groupBy must be ['advertiser'].
-            # ASIN-level granularity is achieved by including 'advertisedAsin' in columns.
-            group_by = ["advertiser"]
-        else:
-            group_by = ["campaign"]
-
-    # In V3 SP, use 'sales1d' (or sales7d etc), 'cost', 'roasClicks14d', 'acosClicks14d'.
-    columns = ["campaignId", "campaignName", "impressions", "clicks", "cost", "sales1d", "sales7d", "sales14d", "roasClicks14d", "acosClicks14d"]
-    
-    if report_type == "spAdGroups":
-        columns += ["adGroupId", "adGroupName"]
-    elif report_type == "spTargeting":
-        columns += ["adGroupId", "adGroupName", "targeting"]
-    elif report_type == "spProducts":
-        # spAds columns for products
-        columns += ["adGroupId", "adGroupName", "advertisedAsin", "advertisedSku"]
-
-    v3_report_type_id = report_type
     if report_type == "spProducts":
+        # For products, we group by 'advertiser' and request ad-level columns.
+        group_by = ["advertiser"]
         v3_report_type_id = "spAdvertisedProduct"
+        # Columns must include IDs since they are not in groupBy
+        # Removed roasClicks14d, acosClicks14d as they are often invalid in V3
+        columns = [
+            "date", "adId", "advertisedAsin", "advertisedSku", "campaignId", "campaignName", "adGroupId", "adGroupName",
+            "impressions", "clicks", "cost", "sales1d", "sales7d", "sales14d"
+        ]
     elif report_type == "spAdGroups":
+        # For adGroups, use 'spAdGroups' report type and group by adGroup
+        group_by = ["adGroup"]
+        v3_report_type_id = "spAdGroups"
+        columns = [
+            "date", "impressions", "clicks", "cost", "sales1d", "sales7d", "sales14d"
+        ]
+    elif report_type == "spTargeting":
+        group_by = ["targeting"]
+        v3_report_type_id = "spTargeting"
+        columns = [
+            "date", "impressions", "clicks", "cost", "sales1d", "sales7d", "sales14d"
+        ]
+    else:
+        # Default to spCampaigns
+        group_by = ["campaign"]
         v3_report_type_id = "spCampaigns"
+        columns = [
+            "date", "impressions", "clicks", "cost", "sales1d", "sales7d", "sales14d"
+        ]
 
     body: dict[str, Any] = {
         "name": name,
@@ -162,7 +163,7 @@ def create_sp_daily_report(
     last_error: str | None = None
     for prefix in REPORTING_PREFIXES:
         path = f"{prefix}/reports"
-        # Small internal retry for transient 429
+        # Small internal retry for transient errors
         for attempt in range(3):
             r = client.request(
                 "POST",
@@ -173,21 +174,19 @@ def create_sp_daily_report(
                     "Accept": CONTENT_REPORT,
                 },
             )
-            if r.status_code < 400:
-                data = r.json()
-                report_id = data.get("reportId") or data.get("report_id")
-                if not report_id:
-                    raise RuntimeError(f"Unexpected create response on {path}: {data}")
-                return str(report_id)
+            if r.status_code == 200:
+                return r.json()["reportId"]
             
-            # Handle Duplicate Request (425)
+            # Handle 425 Duplicate Request by extracting reportId from message
             if r.status_code == 425:
                 try:
-                    msg = r.json().get("detail", "")
-                    if "duplicate of :" in msg.lower():
-                        existing_id = msg.split(":")[-1].strip()
-                        logger.info(f"Duplicate request detected. Resuming with existing reportId: {existing_id}")
-                        return existing_id
+                    data = r.json()
+                    msg = data.get("message", "")
+                    match = re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", msg)
+                    if match:
+                        rid = match.group(0)
+                        logger.info(f"Duplicate request detected. Resuming with existing reportId: {rid}")
+                        return rid
                 except Exception:
                     pass
             
