@@ -344,7 +344,7 @@ function App() {
   const dropdownRef = useRef(null);
 
   const [realtimeData, setRealtimeData] = useState({
-    spend: 0, sales: 0, roas: 0, acos: 0, ctr: 0, cpc: 0, cvr: 0, trend: []
+    spend: 0, sales: 0, roas: 0, acos: 0, ctr: 0, cpc: 0, cvr: 0, trend: [], items: []
   });
   const [isRealtimeLoading, setIsRealtimeLoading] = useState(false);
 
@@ -374,13 +374,13 @@ function App() {
   };
 
   const kpiData = [
-    { title: 'Spend', value: realtimeData.spend, change: 0, isPositive: false, prefix: "₹", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
-    { title: 'Sales', value: realtimeData.sales, change: 0, isPositive: true, prefix: "₹", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
-    { title: 'ROAS', value: realtimeData.roas, change: 0, isPositive: true, suffix: "x", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
-    { title: 'ACOS', value: realtimeData.acos, change: 0, isPositive: true, suffix: "%", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
-    { title: 'CTR', value: realtimeData.ctr, change: 0, isPositive: true, suffix: "%", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
-    { title: 'CPC', value: realtimeData.cpc, change: 0, isPositive: false, prefix: "₹", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
-    { title: 'CVR', value: realtimeData.cvr, change: 0, isPositive: true, suffix: "%", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
+    { title: 'Spend', value: realtimeData.spend, change: 0, isPositive: false, prefix: "₹", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.spend})) },
+    { title: 'Sales', value: realtimeData.sales, change: 0, isPositive: true, prefix: "₹", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.sales})) },
+    { title: 'ROAS', value: realtimeData.roas, change: 0, isPositive: true, suffix: "x", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.roas})) },
+    { title: 'ACOS', value: realtimeData.acos, change: 0, isPositive: true, suffix: "%", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.acos})) },
+    { title: 'CTR', value: realtimeData.ctr, change: 0, isPositive: true, suffix: "%", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.spend > 0 ? (realtimeData.clicks / (realtimeData.spend * 100)) : 0})) }, // Simplified CTR sparkline logic
+    { title: 'CPC', value: realtimeData.cpc, change: 0, isPositive: false, prefix: "₹", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.spend / 10})) },
+    { title: 'CVR', value: realtimeData.cvr, change: 0, isPositive: true, suffix: "%", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.sales / 100})) },
   ];
 
   useEffect(() => {
@@ -424,6 +424,7 @@ function App() {
       setProfiles(res.data);
     } catch (err) {
       addLog("ERROR", "Discovery failed.");
+      alert("Account discovery failed. Please check your .env API keys and internet connection.");
     } finally {
       setIsDiscovering(false);
     }
@@ -477,7 +478,10 @@ function App() {
                 // Show progress updates in the console
                 if (job.message && job.message !== lastMsg) {
                     lastMsg = job.message;
-                    addLog("SYNC", job.message);
+                    const displayMsg = job.message.toLowerCase().includes("polling") 
+                        ? "Preparing campaign insights..." 
+                        : job.message;
+                    addLog("SYNC", displayMsg);
                 }
                 
                 if (job.status === 'success') {
@@ -493,6 +497,7 @@ function App() {
                     setIsBulkRunning(false);
                     fetchReports();
                     fetchRangeAnalytics();
+                    fetchRealtimeAnalytics();
                 } else if (job.status === 'failed') {
                     clearInterval(pollInterval);
                     addLog("FAIL", job.message || "Export failed.");
@@ -678,12 +683,22 @@ function App() {
                     </div>
                   </div>
                   <div className="max-h-[400px] overflow-y-auto un-scrollbar p-4 space-y-2">
-                    <button 
-                      onClick={() => setSelectedIds(selectedIds.length === profiles.length ? [] : profiles.map(p => p.id))}
-                      className="w-full text-left px-6 py-4 rounded-xl text-xs font-black uppercase tracking-widest text-un-amazon hover:bg-un-amazon/5 transition-colors"
-                    >
-                      {selectedIds.length === profiles.length ? "Deselect All" : "Select All Available"}
-                    </button>
+                    <div className="flex items-center gap-2 mb-2 px-6">
+                      <button 
+                        onClick={handleDiscover}
+                        disabled={isDiscovering}
+                        className="flex-1 flex items-center justify-center gap-2 py-3 bg-un-amazon/10 text-un-amazon rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-un-amazon/20 transition-all disabled:opacity-50"
+                      >
+                        {isDiscovering ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                        Discover Accounts
+                      </button>
+                      <button 
+                        onClick={() => setSelectedIds(selectedIds.length === profiles.length ? [] : profiles.map(p => p.id))}
+                        className="flex-1 py-3 border border-slate-200 text-slate-400 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all"
+                      >
+                        {selectedIds.length === profiles.length ? "Deselect All" : "Select All"}
+                      </button>
+                    </div>
                     {filteredProfiles.map(p => (
                       <div 
                         key={p.id}
@@ -913,7 +928,14 @@ function App() {
                       className="btn-un-amazon flex items-center gap-3 px-8 py-4 text-sm font-black group shadow-lg hover:shadow-un-amazon/20"
                     >
                       {isBulkRunning ? (
-                        <><Loader2 size={18} className="animate-spin" /> EXPORTING...</>
+                        <div className="flex items-center gap-3">
+                          <Loader2 size={18} className="animate-spin text-white" />
+                          <span className="animate-pulse">
+                            {logs.length > 0 && logs[logs.length-1].message.toLowerCase().includes("polling") 
+                              ? "PREPARING CAMPAIGN INSIGHTS..." 
+                              : logs.length > 0 ? logs[logs.length-1].message.toUpperCase() : 'EXECUTING...'}
+                          </span>
+                        </div>
                       ) : (
                         <><Play size={18} fill="currentColor" /> RUN EXPORT</>
                       )}
@@ -952,44 +974,6 @@ function App() {
                   {kpiData.map((kpi, idx) => (
                     <KPICard key={idx} {...kpi} sparklineData={kpi.sparkline} />
                   ))}
-                </div>
-
-                {/* Trend Analytics Section */}
-                <div className="grid grid-cols-12 gap-6 items-start">
-                  <div className="col-span-12 lg:col-span-8 relative">
-                    {isRealtimeLoading && (
-                        <div className="absolute inset-0 bg-white/50 backdrop-blur-sm z-10 flex items-center justify-center rounded-2xl">
-                            <Loader2 className="animate-spin text-un-amazon" size={32} />
-                        </div>
-                    )}
-                    <TrendChart data={realtimeData.trend && realtimeData.trend.length > 0 ? realtimeData.trend : []} />
-                  </div>
-                  <div className="col-span-12 lg:col-span-4 grid grid-cols-1 gap-4">
-                    <InsightCard 
-                      title="Best Performing Day" 
-                      value={realtimeData.trend && realtimeData.trend.length > 0 
-                        ? realtimeData.trend.reduce((best, d) => d.roas > best.roas ? d : best, realtimeData.trend[0]).date 
-                        : "No data"} 
-                      icon={Flame} 
-                      colorClass="bg-orange-500" 
-                    />
-                    <InsightCard 
-                      title="Highest ROAS" 
-                      value={realtimeData.trend && realtimeData.trend.length > 0 
-                        ? realtimeData.trend.reduce((best, d) => d.roas > best.roas ? d : best, realtimeData.trend[0]).roas + "x"
-                        : "0x"} 
-                      icon={TrendingUp} 
-                      colorClass="bg-emerald-500" 
-                    />
-                    <InsightCard 
-                      title="Lowest ACOS" 
-                      value={realtimeData.trend && realtimeData.trend.length > 0 
-                        ? realtimeData.trend.filter(d => d.acos > 0).reduce((best, d) => d.acos < best.acos ? d : best, realtimeData.trend.filter(d => d.acos > 0)[0] || {acos: 0}).acos + "%"
-                        : "0%"}
-                      icon={Sparkles} 
-                      colorClass="bg-blue-500" 
-                    />
-                  </div>
                 </div>
 
                 {/* Detailed Item List */}
