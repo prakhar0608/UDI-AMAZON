@@ -554,10 +554,10 @@ function App() {
                 exit={{ opacity: 0, x: -10 }}
                 className="flex items-center justify-between w-full px-3"
               >
-                <div className="animate-float-subtle">
+                <div className="animate-float-subtle flex-1 flex justify-center pl-4">
                   <img 
                     src="https://upload.wikimedia.org/wikipedia/commons/a/a9/Amazon_logo.svg" 
-                    className="h-5 w-auto object-contain" 
+                    className="h-7 w-auto object-contain" 
                     alt="Amazon" 
                   />
                 </div>
