@@ -229,6 +229,19 @@ def run_bulk_profiles(
                 tz_used = p.timezone or "UTC"
             else:
                 start_date, end_date, dates, tz_used = safe_last_n_days(days, p.timezone)
+            
+            # Check for existing recent raw report (same profile, same date range, same report type)
+            try:
+                existing_json = _find_today_json_artifact_path(app.project_root, p, report_type)
+                # Verify it's for the same date range (simplification: assume today's report is always latest)
+                if existing_json.exists():
+                    progress("cache", f"Found existing report for {p.display_name}. Reusing...")
+                    res = build_result_from_json_artifact(app, p, existing_json, days=len(dates), run_id="cached")
+                    results.append(res)
+                    continue
+            except:
+                pass
+
             run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + uuid.uuid4().hex[:8]
             base = base_url_for_region(p.region)
             

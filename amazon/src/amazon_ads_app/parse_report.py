@@ -89,6 +89,7 @@ def records_to_dataframe(records: list[dict[str, Any]]) -> pd.DataFrame:
         # Primary for sales in SP is usually 7d to match Amazon Console default,
         # fallback to 14d or 1d if needed.
         sales = _first(row, ("sales7d", "sales_7d", "sales14d", "sales_14d", "sales1d", "sales_1d"))
+        orders = _first(row, ("unitsSoldClicks7d", "units_sold_clicks_7d", "purchases7d", "purchases_7d", "unitsSoldClicks14d", "unitsSoldClicks1d"))
 
         item: dict[str, Any] = {
             "campaign_id": str(cid) if cid is not None else "",
@@ -98,6 +99,7 @@ def records_to_dataframe(records: list[dict[str, Any]]) -> pd.DataFrame:
             "clicks": int(_first(row, ("clicks",)) or 0),
             "spend": float(cost) if cost is not None else 0.0,
             "sales": float(sales) if sales is not None else 0.0,
+            "orders": int(orders) if orders is not None else 0,
         }
 
         if has_agid:

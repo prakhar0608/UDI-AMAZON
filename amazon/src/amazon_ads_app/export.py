@@ -71,27 +71,26 @@ def _apply_excel_formatting(writer: pd.ExcelWriter, df: pd.DataFrame, sheet_name
 
 
 def export_dataframe(
-    wide_df: pd.DataFrame,
+    summary_df: pd.DataFrame,
+    performance_df: pd.DataFrame,
     out_dir: Path,
     *,
     stem: str,
-    long_df: pd.DataFrame | None = None,
 ) -> tuple[Path, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     csv_path = out_dir / f"{stem}.csv"
     xlsx_path = out_dir / f"{stem}.xlsx"
 
-    # Save wide format to CSV
-    wide_df.to_csv(csv_path, index=False)
+    # Save performance format to CSV (it's the main data)
+    performance_df.to_csv(csv_path, index=False)
 
-    # Save both to Excel with formatting
+    # Save to Excel with two sheets: Summary and Campaign Performance
     with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
-        wide_df.to_excel(writer, index=False, sheet_name="Summary")
-        _apply_excel_formatting(writer, wide_df, "Summary")
+        summary_df.to_excel(writer, index=False, sheet_name="Summary")
+        _apply_excel_formatting(writer, summary_df, "Summary")
         
-        if long_df is not None and not long_df.empty:
-            long_df.to_excel(writer, index=False, sheet_name="Daily Performance")
-            _apply_excel_formatting(writer, long_df, "Daily Performance")
+        performance_df.to_excel(writer, index=False, sheet_name="Campaign Performance")
+        _apply_excel_formatting(writer, performance_df, "Campaign Performance")
 
     return csv_path, xlsx_path
 
