@@ -6,14 +6,21 @@ import numpy as np
 import pandas as pd
 
 
-def add_roas_acos(df: pd.DataFrame) -> pd.DataFrame:
-    """Add derived metrics (roas, acos)."""
+def add_derived_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    """Add derived metrics (roas, acos, ctr, cpc, cvr)."""
+    if df.empty: return df
     out = df.copy()
     spend = out["spend"].astype(float)
     sales = out["sales"].astype(float)
+    clicks = out["clicks"].astype(float) if "clicks" in out.columns else pd.Series(0, index=out.index)
+    impressions = out["impressions"].astype(float) if "impressions" in out.columns else pd.Series(0, index=out.index)
+    orders = out["orders"].astype(float) if "orders" in out.columns else pd.Series(0, index=out.index)
 
-    out["roas"] = np.where(spend > 0, sales / spend, np.nan)
-    out["acos"] = np.where(sales > 0, spend / sales, np.nan)
+    out["roas"] = np.where(spend > 0, sales / spend, 0.0)
+    out["acos"] = np.where(sales > 0, spend / sales, 0.0)
+    out["ctr"] = np.where(impressions > 0, clicks / impressions, 0.0)
+    out["cpc"] = np.where(clicks > 0, spend / clicks, 0.0)
+    out["cvr"] = np.where(clicks > 0, orders / clicks, 0.0)
     return out
 
 
@@ -32,13 +39,12 @@ def aggregate_campaign_daily(df: pd.DataFrame, report_type: str = "spCampaigns")
     else:
         group_cols = [c for c in cols if c in df.columns]
 
-    agg_map = {"spend": "sum", "sales": "sum"}
+    agg_map = {"spend": "sum", "sales": "sum", "impressions": "sum", "clicks": "sum", "orders": "sum"}
+    # Filter agg_map to only include columns present in df
+    agg_map = {k: v for k, v in agg_map.items() if k in df.columns}
 
-    # We need to preserve names if they are not in group_cols
-    # But for spProducts, we usually don't have campaign/adgroup names in the final result anyway.
-    
     g = (
         df.groupby(group_cols, as_index=False)
         .agg(agg_map)
     )
-    return add_roas_acos(g)
+    return add_derived_metrics(g)

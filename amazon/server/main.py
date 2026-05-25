@@ -5,9 +5,9 @@ from fastapi.responses import FileResponse
 from pathlib import Path
 import os
 import sys
-from datetime import datetime, timezone
 import pandas as pd
 from collections import defaultdict
+from datetime import datetime, timezone, timedelta
 
 # Add src to path so we can import amazon_ads_app
 project_root = Path(__file__).resolve().parent.parent
@@ -336,7 +336,59 @@ def _run_export_job(job_id: str, ids: list[int], report_type: str, start_date: s
             date_range_str = f"{start_date}_to_{end_date}" if start_date and end_date else run_day
             stem = f"{slug}_{date_range_str}_{report_type}"
             out_dir = processed_dir / stem
-            export_dataframe(res.wide, out_dir, stem=stem, long_df=res.long_daily)
+            # 1. Aggregate Campaign Performance (across all dates)
+            group_cols = ["campaign_name"] if "campaign_name" in res.long_daily.columns else ["asin"] if "asin" in res.long_daily.columns else ["campaign_id"]
+            
+            # Ensure we only aggregate columns that exist
+            metrics = ["spend", "sales", "impressions", "clicks", "orders"]
+            agg_map = {m: "sum" for m in metrics if m in res.long_daily.columns}
+            
+            perf_df = res.long_daily.groupby(group_cols, as_index=False).agg(agg_map)
+            
+            # Add derived metrics
+            from amazon_ads_app.metrics import add_derived_metrics
+            perf_df = add_derived_metrics(perf_df)
+            
+            # Rename columns for clarity in Excel
+            rename_map = {
+                "campaign_name": "Campaign Name",
+                "asin": "ASIN",
+                "spend": "Total Spend",
+                "sales": "Total Sales",
+                "roas": "ROAS",
+                "acos": "ACOS",
+                "ctr": "CTR",
+                "cpc": "CPC",
+                "cvr": "CVR",
+                "impressions": "Impressions",
+                "clicks": "Clicks",
+                "orders": "Orders"
+            }
+            perf_df = perf_df.rename(columns={k: v for k, v in rename_map.items() if k in perf_df.columns})
+
+            # 2. Calculate Top-Level KPIs
+            total_spend = perf_df["Total Spend"].sum() if "Total Spend" in perf_df.columns else 0
+            total_sales = perf_df["Total Sales"].sum() if "Total Sales" in perf_df.columns else 0
+            total_clicks = perf_df["Clicks"].sum() if "Clicks" in perf_df.columns else 0
+            total_imps = perf_df["Impressions"].sum() if "Impressions" in perf_df.columns else 0
+            total_orders = perf_df["Orders"].sum() if "Orders" in perf_df.columns else 0
+            
+            summary_data = {
+                "Metric": ["Total Spend", "Total Sales", "Overall ROAS", "Overall ACOS", "Average CPC", "Average CTR", "Average CVR"],
+                "Value": [
+                    total_spend,
+                    total_sales,
+                    total_sales / total_spend if total_spend > 0 else 0,
+                    (total_spend / total_sales) if total_sales > 0 else 0,
+                    total_spend / total_clicks if total_clicks > 0 else 0,
+                    total_clicks / total_imps if total_imps > 0 else 0,
+                    total_orders / total_clicks if total_clicks > 0 else 0
+                ]
+            }
+            summary_df = pd.DataFrame(summary_data)
+
+            # 3. Export
+            export_dataframe(summary_df, perf_df, out_dir, stem=stem)
             final_results.append({
                 "profile": res.profile.display_name,
                 "csv_name": f"{stem}/{stem}.csv",
@@ -381,6 +433,149 @@ async def get_job_status(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
+
+class RealtimeRequest(BaseModel):
+    ids: list[int]
+    report_type: str = "spCampaigns"
+    start_date: str | None = None
+    end_date: str | None = None
+
+@app.post("/api/analytics/realtime")
+async def get_realtime_analytics(request: RealtimeRequest):
+    try:
+        app_cfg = load_app_config()
+        processed_dir = app_cfg.project_root / "data" / "processed"
+        
+        # Load profiles for lookup
+        cache_path = default_cache_path(app_cfg.project_root)
+        cached = load_cache(cache_path)
+        all_profiles = cached.profiles if cached else []
+        if app_cfg.profiles_path.exists():
+            all_profiles.extend(load_profiles(app_cfg.profiles_path))
+        
+        target_profiles = [p for p in all_profiles if p.id in request.ids]
+        if not target_profiles:
+            return {"spend": 0, "sales": 0, "roas": 0, "acos": 0, "ctr": 0, "cpc": 0, "cvr": 0, "trend": [], "items": []}
+
+        # Date range for trend
+        if request.start_date and request.end_date:
+            start_dt = datetime.strptime(request.start_date, "%Y-%m-%d")
+            end_dt = datetime.strptime(request.end_date, "%Y-%m-%d")
+        else:
+            end_dt = datetime.now()
+            start_dt = end_dt - timedelta(days=7)
+        
+        dates = []
+        curr = start_dt
+        while curr <= end_dt:
+            dates.append(curr.strftime("%Y-%m-%d"))
+            curr += timedelta(days=1)
+
+        aggregated_metrics = defaultdict(lambda: {"spend": 0.0, "sales": 0.0, "clicks": 0, "impressions": 0, "orders": 0})
+        item_metrics = defaultdict(lambda: {"spend": 0.0, "sales": 0.0, "clicks": 0, "impressions": 0, "orders": 0})
+
+        for p in target_profiles:
+            slug = sanitize_filename_part(p.display_name)
+            # Find the most recent report for this profile and type
+            pattern = f"**/{slug}*_{request.report_type}.csv"
+            files = sorted(processed_dir.glob(pattern), key=os.path.getmtime, reverse=True)
+            
+            if not files:
+                continue
+            
+            # Use the latest file
+            f = files[0]
+            try:
+                df = pd.read_csv(f)
+                
+                # We expect columns like spend_YYYY-MM-DD
+                spend_cols = [c for c in df.columns if c.startswith('spend_')]
+                sales_cols = [c for c in df.columns if c.startswith('sales_')]
+                clicks_cols = [c for c in df.columns if c.startswith('clicks_')]
+                impressions_cols = [c for c in df.columns if c.startswith('impressions_')]
+                orders_cols = [c for c in df.columns if c.startswith('orders_')]
+                
+                for d in dates:
+                    s_col = f"spend_{d}"
+                    sa_col = f"sales_{d}"
+                    cl_col = f"clicks_{d}"
+                    im_col = f"impressions_{d}"
+                    or_col = f"orders_{d}"
+                    
+                    if s_col in df.columns: aggregated_metrics[d]["spend"] += df[s_col].sum()
+                    if sa_col in df.columns: aggregated_metrics[d]["sales"] += df[sa_col].sum()
+                    if cl_col in df.columns: aggregated_metrics[d]["clicks"] += df[cl_col].sum()
+                    if im_col in df.columns: aggregated_metrics[d]["impressions"] += df[im_col].sum()
+                    if or_col in df.columns: aggregated_metrics[d]["orders"] += df[or_col].sum()
+
+                # Item list aggregation (for the table)
+                name_col = "campaign_name" if "campaign_name" in df.columns else "asin" if "asin" in df.columns else "ad_group_name"
+                if name_col in df.columns:
+                    for _, row in df.iterrows():
+                        key = row[name_col]
+                        item_metrics[key]["spend"] += sum(row[c] for c in spend_cols if c.replace('spend_', '') in dates)
+                        item_metrics[key]["sales"] += sum(row[c] for c in sales_cols if c.replace('sales_', '') in dates)
+                        item_metrics[key]["clicks"] += sum(row[c] for c in clicks_cols if c.replace('clicks_', '') in dates)
+                        item_metrics[key]["orders"] += sum(row[c] for c in orders_cols if c.replace('orders_', '') in dates)
+
+            except Exception as e:
+                debug_log(f"Error processing {f}: {e}")
+                continue
+
+        # Format trend data
+        trend = []
+        for d in dates:
+            m = aggregated_metrics[d]
+            roas = m["sales"] / m["spend"] if m["spend"] > 0 else 0
+            acos = (m["spend"] / m["sales"] * 100) if m["sales"] > 0 else 0
+            trend.append({
+                "day": d.split('-')[-1], # Just the day for the chart
+                "date": d,
+                "spend": round(m["spend"], 2),
+                "sales": round(m["sales"], 2),
+                "roas": round(roas, 2),
+                "acos": round(acos, 2)
+            })
+
+        total_spend = sum(m["spend"] for m in aggregated_metrics.values())
+        total_sales = sum(m["sales"] for m in aggregated_metrics.values())
+        total_clicks = sum(m["clicks"] for m in aggregated_metrics.values())
+        total_imps = sum(m["impressions"] for m in aggregated_metrics.values())
+        total_orders = sum(m["orders"] for m in aggregated_metrics.values())
+
+        # Format items list
+        items = []
+        for name, m in item_metrics.items():
+            if m["spend"] == 0 and m["sales"] == 0: continue
+            roas = m["sales"] / m["spend"] if m["spend"] > 0 else 0
+            acos = (m["spend"] / m["sales"] * 100) if m["sales"] > 0 else 0
+            items.append({
+                "name": name,
+                "spend": round(m["spend"], 2),
+                "sales": round(m["sales"], 2),
+                "clicks": int(m["clicks"]),
+                "orders": int(m["orders"]),
+                "roas": round(roas, 2),
+                "acos": round(acos, 2)
+            })
+        
+        # Sort items by spend descending
+        items = sorted(items, key=lambda x: x["spend"], reverse=True)
+
+        return {
+            "spend": round(total_spend, 2),
+            "sales": round(total_sales, 2),
+            "roas": round(total_sales / total_spend, 2) if total_spend > 0 else 0,
+            "acos": round((total_spend / total_sales * 100), 2) if total_sales > 0 else 0,
+            "ctr": round((total_clicks / total_imps * 100), 2) if total_imps > 0 else 0,
+            "cpc": round(total_spend / total_clicks, 2) if total_clicks > 0 else 0,
+            "cvr": round((total_orders / total_clicks * 100), 2) if total_clicks > 0 else 0,
+            "trend": trend,
+            "items": items
+        }
+    except Exception as e:
+        debug_log(f"Realtime analytics error: {e}")
+        return {"spend": 0, "sales": 0, "roas": 0, "acos": 0, "ctr": 0, "cpc": 0, "cvr": 0, "trend": [], "items": []}
 
 @app.get("/api/analytics/ranges")
 async def get_range_analytics():

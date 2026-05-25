@@ -60,25 +60,44 @@ import {
 const API_BASE = `http://${window.location.hostname}:8000/api`;
 
 const Counter = ({ value, prefix = "", suffix = "", decimals = 0 }) => {
-  const [displayValue, setDisplayValue] = useState(0);
+  const [displayValue, setDisplayValue] = useState(parseFloat(value) || 0);
+  const prevValueRef = useRef(parseFloat(value) || 0);
   
   useEffect(() => {
-    let start = 0;
-    const end = parseFloat(value);
-    const duration = 1000;
-    const increment = end / (duration / 16);
+    const end = parseFloat(value) || 0;
+    const start = prevValueRef.current;
+    prevValueRef.current = end;
     
-    const timer = setInterval(() => {
-      start += increment;
-      if (start >= end) {
-        setDisplayValue(end);
-        clearInterval(timer);
-      } else {
-        setDisplayValue(start);
+    // Skip animation for zero or same value
+    if (end === start) {
+      setDisplayValue(end);
+      return;
+    }
+    
+    const duration = 800; // ms
+    let startTime = null;
+    let rafId = null;
+    
+    const animate = (timestamp) => {
+      if (!startTime) startTime = timestamp;
+      const elapsed = timestamp - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      // Ease out cubic
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const current = start + (end - start) * eased;
+      setDisplayValue(current);
+      
+      if (progress < 1) {
+        rafId = requestAnimationFrame(animate);
       }
-    }, 16);
+    };
     
-    return () => clearInterval(timer);
+    rafId = requestAnimationFrame(animate);
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      // On cleanup, always snap to the target value
+      setDisplayValue(end);
+    };
   }, [value]);
 
   return (
@@ -132,8 +151,8 @@ const TrendChart = ({ data }) => {
   const [activeTab, setActiveTab] = useState('spend');
   
   const tabs = [
-    { id: 'spend', label: 'Spend', color: '#ff9900', prefix: '$' },
-    { id: 'sales', label: 'Sales', color: '#10b981', prefix: '$' },
+    { id: 'spend', label: 'Spend', color: '#ff9900', prefix: '₹' },
+    { id: 'sales', label: 'Sales', color: '#10b981', prefix: '₹' },
     { id: 'roas', label: 'ROAS', color: '#3b82f6', suffix: 'x' },
     { id: 'acos', label: 'ACOS', color: '#ef4444', suffix: '%' },
   ];
@@ -225,6 +244,67 @@ const InsightCard = ({ title, value, icon: Icon, colorClass }) => (
   </motion.div>
 );
 
+const ItemTable = ({ items, title, prefix = "" }) => {
+  if (!items || items.length === 0) return null;
+
+  return (
+    <div className="un-card !p-0 overflow-hidden border-slate-200 shadow-sm mt-8">
+      <div className="px-8 py-6 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+        <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+          <Table size={14} className="text-un-amazon" /> {title} Performance
+        </h3>
+        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{items.length} Items</span>
+      </div>
+      <div className="overflow-x-auto un-scrollbar">
+        <table className="w-full text-left">
+          <thead className="bg-white text-[9px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100">
+            <tr>
+              <th className="px-8 py-4">Name</th>
+              <th className="px-8 py-4 text-right">Spend</th>
+              <th className="px-8 py-4 text-right">Sales</th>
+              <th className="px-8 py-4 text-right">Clicks</th>
+              <th className="px-8 py-4 text-right">Orders</th>
+              <th className="px-8 py-4 text-right">ROAS</th>
+              <th className="px-8 py-4 text-right">ACOS</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {items.map((item, i) => (
+              <tr key={i} className="group hover:bg-slate-50 transition-colors">
+                <td className="px-8 py-4">
+                  <div className="text-sm font-black text-slate-900 truncate max-w-[300px]" title={item.name}>{item.name}</div>
+                </td>
+                <td className="px-8 py-4 text-right text-sm font-bold text-slate-600">
+                  {prefix}{item.spend.toLocaleString()}
+                </td>
+                <td className="px-8 py-4 text-right text-sm font-bold text-slate-900">
+                  {prefix}{item.sales.toLocaleString()}
+                </td>
+                <td className="px-8 py-4 text-right text-sm font-bold text-slate-500">
+                  {item.clicks.toLocaleString()}
+                </td>
+                <td className="px-8 py-4 text-right text-sm font-bold text-slate-500">
+                  {item.orders.toLocaleString()}
+                </td>
+                <td className="px-8 py-4 text-right">
+                  <span className={`px-3 py-1 rounded-lg text-[10px] font-black ${item.roas >= 2 ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-600'}`}>
+                    {item.roas.toFixed(2)}x
+                  </span>
+                </td>
+                <td className="px-8 py-4 text-right">
+                  <span className={`px-3 py-1 rounded-lg text-[10px] font-black ${item.acos <= 30 && item.acos > 0 ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-600'}`}>
+                    {item.acos.toFixed(2)}%
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
 const REPORT_LEVELS = [
   { id: 'spCampaigns', label: 'CAMPAIGN', icon: <Target size={24} />, desc: 'CAMPAIGN LAYER' },
   { id: 'spAdGroups', label: 'AD GROUP', icon: <Layers size={24} />, desc: 'AD GROUP LAYER' },
@@ -263,24 +343,44 @@ function App() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const dropdownRef = useRef(null);
 
-  const mockKPIData = [
-    { title: 'Spend', value: 12450.80, change: 8.2, isPositive: false, prefix: "$", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
-    { title: 'Sales', value: 58920.45, change: 12.4, isPositive: true, prefix: "$", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
-    { title: 'ROAS', value: 4.73, change: 4.1, isPositive: true, suffix: "x", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
-    { title: 'ACOS', value: 21.13, change: 2.3, isPositive: true, suffix: "%", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
-    { title: 'CTR', value: 0.89, change: 1.2, isPositive: true, suffix: "%", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
-    { title: 'CPC', value: 1.12, change: 0.5, isPositive: false, prefix: "$", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
-    { title: 'CVR', value: 9.42, change: 0.8, isPositive: true, suffix: "%", decimals: 2, sparkline: Array.from({length: 10}, () => ({val: Math.random() * 100})) },
-  ];
+  const [realtimeData, setRealtimeData] = useState({
+    spend: 0, sales: 0, roas: 0, acos: 0, ctr: 0, cpc: 0, cvr: 0, trend: [], items: []
+  });
+  const [isRealtimeLoading, setIsRealtimeLoading] = useState(false);
 
-  const trendData = [
-    { day: "Mon", spend: 1240, sales: 5800, roas: 4.6, acos: 21.3 },
-    { day: "Tue", spend: 1450, sales: 6200, roas: 4.2, acos: 23.1 },
-    { day: "Wed", spend: 1100, sales: 5400, roas: 4.9, acos: 20.4 },
-    { day: "Thu", spend: 1680, sales: 8400, roas: 5.2, acos: 18.2 },
-    { day: "Fri", spend: 1320, sales: 6100, roas: 4.6, acos: 21.5 },
-    { day: "Sat", spend: 980, sales: 4900, roas: 5.0, acos: 19.8 },
-    { day: "Sun", spend: 1150, sales: 5600, roas: 4.8, acos: 20.2 },
+  useEffect(() => {
+    fetchRealtimeAnalytics();
+  }, [selectedIds, selectedLevel, startDate, endDate]);
+
+  const fetchRealtimeAnalytics = async () => {
+    if (selectedIds.length === 0) {
+        setRealtimeData({spend: 0, sales: 0, roas: 0, acos: 0, ctr: 0, cpc: 0, cvr: 0, trend: []});
+        return;
+    }
+    setIsRealtimeLoading(true);
+    try {
+        const res = await axios.post(`${API_BASE}/analytics/realtime`, {
+            ids: selectedIds,
+            report_type: selectedLevel,
+            start_date: startDate,
+            end_date: endDate
+        });
+        setRealtimeData(res.data);
+    } catch (err) {
+        console.error("Realtime analytics fetch failed", err);
+    } finally {
+        setIsRealtimeLoading(false);
+    }
+  };
+
+  const kpiData = [
+    { title: 'Spend', value: realtimeData.spend, change: 0, isPositive: false, prefix: "₹", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.spend})) },
+    { title: 'Sales', value: realtimeData.sales, change: 0, isPositive: true, prefix: "₹", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.sales})) },
+    { title: 'ROAS', value: realtimeData.roas, change: 0, isPositive: true, suffix: "x", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.roas})) },
+    { title: 'ACOS', value: realtimeData.acos, change: 0, isPositive: true, suffix: "%", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.acos})) },
+    { title: 'CTR', value: realtimeData.ctr, change: 0, isPositive: true, suffix: "%", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.spend > 0 ? (realtimeData.clicks / (realtimeData.spend * 100)) : 0})) }, // Simplified CTR sparkline logic
+    { title: 'CPC', value: realtimeData.cpc, change: 0, isPositive: false, prefix: "₹", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.spend / 10})) },
+    { title: 'CVR', value: realtimeData.cvr, change: 0, isPositive: true, suffix: "%", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.sales / 100})) },
   ];
 
   useEffect(() => {
@@ -324,6 +424,7 @@ function App() {
       setProfiles(res.data);
     } catch (err) {
       addLog("ERROR", "Discovery failed.");
+      alert("Account discovery failed. Please check your .env API keys and internet connection.");
     } finally {
       setIsDiscovering(false);
     }
@@ -377,7 +478,10 @@ function App() {
                 // Show progress updates in the console
                 if (job.message && job.message !== lastMsg) {
                     lastMsg = job.message;
-                    addLog("SYNC", job.message);
+                    const displayMsg = job.message.toLowerCase().includes("polling") 
+                        ? "Preparing campaign insights..." 
+                        : job.message;
+                    addLog("SYNC", displayMsg);
                 }
                 
                 if (job.status === 'success') {
@@ -393,6 +497,7 @@ function App() {
                     setIsBulkRunning(false);
                     fetchReports();
                     fetchRangeAnalytics();
+                    fetchRealtimeAnalytics();
                 } else if (job.status === 'failed') {
                     clearInterval(pollInterval);
                     addLog("FAIL", job.message || "Export failed.");
@@ -454,10 +559,10 @@ function App() {
                 exit={{ opacity: 0, x: -10 }}
                 className="flex items-center justify-between w-full px-3"
               >
-                <div className="animate-float-subtle">
+                <div className="animate-float-subtle flex-1 flex justify-center pl-4">
                   <img 
                     src="https://upload.wikimedia.org/wikipedia/commons/a/a9/Amazon_logo.svg" 
-                    className="h-5 w-auto object-contain" 
+                    className="h-7 w-auto object-contain" 
                     alt="Amazon" 
                   />
                 </div>
@@ -492,23 +597,17 @@ function App() {
         {/* Main Nav - Middle */}
         <nav className="flex flex-col gap-1.5">
           <SidebarLink icon={<LayoutGrid size={22} />} label="Dashboard" active={view === 'dashboard'} onClick={() => setView('dashboard')} isCollapsed={isCollapsed} />
+          <div className="my-1 border-t border-slate-100 mx-3 opacity-50" />
+          <SidebarLink icon={<Target size={22} />} label="Campaign" active={view === 'campaign'} onClick={() => { setView('campaign'); setSelectedLevel('spCampaigns'); }} isCollapsed={isCollapsed} />
+          <SidebarLink icon={<Layers size={22} />} label="Ad Group" active={view === 'ad-group'} onClick={() => { setView('ad-group'); setSelectedLevel('spAdGroups'); }} isCollapsed={isCollapsed} />
+          <SidebarLink icon={<Box size={22} />} label="ASIN" active={view === 'asin'} onClick={() => { setView('asin'); setSelectedLevel('spProducts'); }} isCollapsed={isCollapsed} />
+          <div className="my-1 border-t border-slate-100 mx-3 opacity-50" />
           <SidebarLink icon={<BarChart3 size={22} />} label="Analytics" active={view === 'analytics'} onClick={() => setView('analytics')} isCollapsed={isCollapsed} />
           <SidebarLink icon={<History size={22} />} label="History" active={view === 'reports'} onClick={() => setView('reports')} isCollapsed={isCollapsed} />
         </nav>
         
         {/* Action Buttons - Bottom */}
         <div className="mt-auto flex flex-col gap-1.5">
-          <button 
-            onClick={handleDiscover} 
-            disabled={isDiscovering} 
-            className={`flex items-center gap-4 w-full py-3.5 rounded-2xl text-slate-500 hover:text-un-amazon hover:bg-slate-50 transition-all group ${isCollapsed ? 'justify-center px-0' : 'px-5'}`}
-          >
-            <div className="group-hover:rotate-180 transition-transform duration-500">
-              {isDiscovering ? <Loader2 size={22} className="animate-spin" /> : <RefreshCw size={22} />}
-            </div>
-            {!isCollapsed && <span className="text-sm font-bold tracking-tight">Refresh</span>}
-          </button>
-          
           <button className={`flex items-center gap-4 w-full py-3.5 rounded-2xl text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all ${isCollapsed ? 'justify-center px-0' : 'px-5'}`}>
             <div className="p-0.5">
               <div className="w-6 h-6 rounded-lg bg-slate-900 flex items-center justify-center text-white font-black text-[8px] shadow-sm">
@@ -524,27 +623,6 @@ function App() {
             </div>
             {!isCollapsed && <span className="text-sm font-bold tracking-tight">Sign Out</span>}
           </button>
-
-          {!isCollapsed && (
-            <div className="mt-8 px-5 py-6 bg-slate-50 rounded-[2rem] border border-slate-100 flex flex-col gap-4">
-              <div className="flex items-center gap-3">
-                <Terminal size={14} className="text-un-amazon" />
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">System Console</span>
-              </div>
-              <div className="space-y-3 max-h-[200px] overflow-y-auto un-scrollbar pr-2">
-                {logs.length === 0 && <div className="text-[10px] font-bold text-slate-300 italic">No activity recorded...</div>}
-                {[...logs].reverse().map(log => (
-                  <div key={log.id} className="flex flex-col gap-1">
-                    <div className="flex items-center justify-between">
-                      <span className={`text-[9px] font-black uppercase tracking-tighter ${log.tag === 'ERROR' || log.tag === 'FAIL' ? 'text-rose-500' : 'text-un-amazon'}`}>{log.tag}</span>
-                      <span className="text-[8px] font-bold text-slate-300">{log.time}</span>
-                    </div>
-                    <div className="text-[10px] font-bold text-slate-600 leading-tight break-words">{log.message}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </motion.aside>
 
@@ -605,12 +683,22 @@ function App() {
                     </div>
                   </div>
                   <div className="max-h-[400px] overflow-y-auto un-scrollbar p-4 space-y-2">
-                    <button 
-                      onClick={() => setSelectedIds(selectedIds.length === profiles.length ? [] : profiles.map(p => p.id))}
-                      className="w-full text-left px-6 py-4 rounded-xl text-xs font-black uppercase tracking-widest text-un-amazon hover:bg-un-amazon/5 transition-colors"
-                    >
-                      {selectedIds.length === profiles.length ? "Deselect All" : "Select All Available"}
-                    </button>
+                    <div className="flex items-center gap-2 mb-2 px-6">
+                      <button 
+                        onClick={handleDiscover}
+                        disabled={isDiscovering}
+                        className="flex-1 flex items-center justify-center gap-2 py-3 bg-un-amazon/10 text-un-amazon rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-un-amazon/20 transition-all disabled:opacity-50"
+                      >
+                        {isDiscovering ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                        Discover Accounts
+                      </button>
+                      <button 
+                        onClick={() => setSelectedIds(selectedIds.length === profiles.length ? [] : profiles.map(p => p.id))}
+                        className="flex-1 py-3 border border-slate-200 text-slate-400 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all"
+                      >
+                        {selectedIds.length === profiles.length ? "Deselect All" : "Select All"}
+                      </button>
+                    </div>
                     {filteredProfiles.map(p => (
                       <div 
                         key={p.id}
@@ -685,32 +773,43 @@ function App() {
 
                 {/* Executive KPI Strip */}
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-                  {mockKPIData.map((kpi, idx) => (
+                  {kpiData.map((kpi, idx) => (
                     <KPICard key={idx} {...kpi} sparklineData={kpi.sparkline} />
                   ))}
                 </div>
 
                 {/* Trend Analytics Section */}
                 <div className="grid grid-cols-12 gap-6 items-start">
-                  <div className="col-span-12 lg:col-span-8">
-                    <TrendChart data={trendData} />
+                  <div className="col-span-12 lg:col-span-8 relative">
+                    {isRealtimeLoading && (
+                        <div className="absolute inset-0 bg-white/50 backdrop-blur-sm z-10 flex items-center justify-center rounded-2xl">
+                            <Loader2 className="animate-spin text-un-amazon" size={32} />
+                        </div>
+                    )}
+                    <TrendChart data={realtimeData.trend && realtimeData.trend.length > 0 ? realtimeData.trend : []} />
                   </div>
                   <div className="col-span-12 lg:col-span-4 grid grid-cols-1 gap-4">
                     <InsightCard 
                       title="Best Performing Day" 
-                      value="Thursday" 
+                      value={realtimeData.trend && realtimeData.trend.length > 0 
+                        ? realtimeData.trend.reduce((best, d) => d.roas > best.roas ? d : best, realtimeData.trend[0]).date 
+                        : "No data"} 
                       icon={Flame} 
                       colorClass="bg-orange-500" 
                     />
                     <InsightCard 
                       title="Highest ROAS" 
-                      value="5.2x" 
+                      value={realtimeData.trend && realtimeData.trend.length > 0 
+                        ? realtimeData.trend.reduce((best, d) => d.roas > best.roas ? d : best, realtimeData.trend[0]).roas + "x"
+                        : "0x"} 
                       icon={TrendingUp} 
                       colorClass="bg-emerald-500" 
                     />
                     <InsightCard 
                       title="Lowest ACOS" 
-                      value="18.2%" 
+                      value={realtimeData.trend && realtimeData.trend.length > 0 
+                        ? realtimeData.trend.filter(d => d.acos > 0).reduce((best, d) => d.acos < best.acos ? d : best, realtimeData.trend.filter(d => d.acos > 0)[0] || {acos: 0}).acos + "%"
+                        : "0%"}
                       icon={Sparkles} 
                       colorClass="bg-blue-500" 
                     />
@@ -752,35 +851,137 @@ function App() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-6">
-                  {REPORT_LEVELS.map((level) => (
-                    <button
-                      key={level.id}
-                      onClick={() => setSelectedLevel(level.id)}
-                      className={`group relative p-8 rounded-3xl border-2 transition-all duration-500 ${
-                        selectedLevel === level.id 
-                          ? 'bg-white border-un-amazon shadow-xl shadow-un-amazon/5 -translate-y-1' 
-                          : 'bg-white border-slate-100 hover:border-slate-200 hover:shadow-md'
-                      }`}
+                <div className="flex flex-col items-center gap-8 pb-12">
+                  <div className="text-center space-y-2">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Select a level from the sidebar to view detailed analytics and run exports</p>
+                  </div>
+                </div>
+
+                {/* Data Preview Section */}
+                <AnimatePresence>
+                    {previewData && (
+                        <motion.div 
+                            initial={{ opacity: 0, y: 40 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 40 }}
+                            className="un-card !p-0 overflow-hidden"
+                        >
+                            <div className="px-12 py-10 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                                <div className="flex items-center gap-4">
+                                    <TableIcon size={20} className="text-un-amazon" />
+                                    <span className="text-xl font-black text-slate-900">Intelligence <span className="text-un-amazon">Preview</span></span>
+                                    <span className="px-4 py-1.5 bg-white border border-slate-200 rounded-full text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Showing 100 of {previewData.total_rows} rows</span>
+                                </div>
+                                <button onClick={() => setPreviewData(null)} className="p-3 hover:bg-slate-200 rounded-2xl transition-colors">
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            <div className="overflow-x-auto un-scrollbar max-h-[600px]">
+                                <table className="w-full text-left border-collapse">
+                                    <thead className="sticky top-0 bg-white shadow-sm z-10">
+                                        <tr>
+                                            {previewData.columns.map(col => (
+                                                <th key={col} className="px-10 py-6 text-[10px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100">{col}</th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-50">
+                                        {previewData.data.map((row, i) => (
+                                            <tr key={i} className="hover:bg-slate-50 transition-colors">
+                                                {previewData.columns.map(col => (
+                                                    <td key={col} className="px-10 py-6 text-sm font-bold text-slate-600 truncate max-w-[200px]">{row[col]}</td>
+                                                ))}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+              </motion.div>
+            )}
+
+            {(view === 'campaign' || view === 'ad-group' || view === 'asin') && (
+              <motion.div
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="max-w-[1600px] mx-auto space-y-8"
+              >
+                <header className="flex justify-between items-end border-b border-slate-100 pb-6">
+                  <div className="space-y-3">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 bg-un-amazon/10 rounded-full border border-un-amazon/20">
+                      <Target size={12} className="text-un-amazon" />
+                      <span className="text-[9px] font-black uppercase tracking-widest text-un-amazon">
+                        {view.toUpperCase().replace('-', ' ')} LEVEL ANALYTICS
+                      </span>
+                    </div>
+                    <h1 className="text-5xl font-black tracking-tight leading-none text-slate-900 capitalize">
+                      {view.replace('-', ' ')} <span className="text-gradient">Performance</span>
+                    </h1>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    <button 
+                      onClick={runBulkSync} 
+                      disabled={isBulkRunning || selectedIds.length === 0} 
+                      className="btn-un-amazon flex items-center gap-3 px-8 py-4 text-sm font-black group shadow-lg hover:shadow-un-amazon/20"
                     >
-                      <div className="flex flex-col items-center text-center">
-                        <div className={`p-4 rounded-2xl mb-4 transition-all duration-500 ${selectedLevel === level.id ? 'bg-un-amazon text-slate-900 shadow-lg' : 'bg-slate-50 text-slate-400 group-hover:scale-110'}`}>
-                          {level.icon}
+                      {isBulkRunning ? (
+                        <div className="flex items-center gap-3">
+                          <Loader2 size={18} className="animate-spin text-white" />
+                          <span className="animate-pulse">
+                            {logs.length > 0 && logs[logs.length-1].message.toLowerCase().includes("polling") 
+                              ? "PREPARING CAMPAIGN INSIGHTS..." 
+                              : logs.length > 0 ? logs[logs.length-1].message.toUpperCase() : 'EXECUTING...'}
+                          </span>
                         </div>
-                        <div className={`text-[9px] font-black uppercase tracking-widest mb-1 ${selectedLevel === level.id ? 'text-un-amazon' : 'text-slate-400'}`}>
-                          {level.desc}
-                        </div>
-                        <div className="text-xl font-black text-slate-900">{level.label}</div>
-                      </div>
+                      ) : (
+                        <><Play size={18} fill="currentColor" /> RUN EXPORT</>
+                      )}
                     </button>
+                  </div>
+                </header>
+
+                <div className="grid grid-cols-12 gap-6">
+                  <div className="col-span-12 un-card !p-8 flex items-center justify-between">
+                    <div className="flex items-center gap-8 flex-1">
+                      <div className="space-y-1.5 flex-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Start Date</label>
+                        <input 
+                          type="date" 
+                          value={startDate}
+                          onChange={(e) => setStartDate(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-6 text-sm font-black focus:border-un-amazon/40 focus:bg-white outline-none transition-all"
+                        />
+                      </div>
+                      <ArrowRight className="text-slate-200 mt-6" size={20} />
+                      <div className="space-y-1.5 flex-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">End Date</label>
+                        <input 
+                          type="date" 
+                          value={endDate}
+                          onChange={(e) => setEndDate(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-6 text-sm font-black focus:border-un-amazon/40 focus:bg-white outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Executive KPI Strip */}
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+                  {kpiData.map((kpi, idx) => (
+                    <KPICard key={idx} {...kpi} sparklineData={kpi.sparkline} />
                   ))}
                 </div>
 
-                <div className="flex flex-col items-center gap-8 pb-12">
-                  <button onClick={runBulkSync} disabled={isBulkRunning || selectedIds.length === 0} className="btn-un-amazon flex items-center gap-6 px-16 py-6 text-xl group">
-                    {isBulkRunning ? <><Loader2 size={24} className="animate-spin" /> EXPORTING...</> : <><Play size={24} fill="currentColor" className="group-hover:translate-x-2 transition-transform duration-500" /> RUN EXPORT</>}
-                  </button>
-                </div>
+                {/* Detailed Item List */}
+                <ItemTable 
+                  items={realtimeData.items} 
+                  title={view.replace('-', ' ').toUpperCase()} 
+                  prefix="₹"
+                />
 
                 {/* Data Preview Section */}
                 <AnimatePresence>
@@ -852,7 +1053,9 @@ function App() {
                   </div>
                 </div>
               </motion.div>
-            )}            {view === 'reports' && (
+            )}
+
+            {view === 'reports' && (
               <motion.div
                 initial={{ opacity: 0, x: 10 }}
                 animate={{ opacity: 1, x: 0 }}
