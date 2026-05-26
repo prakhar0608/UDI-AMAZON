@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 from amazon_ads_app.reports_v3 import create_sp_daily_report
 from amazon_ads_app.api_client import AdsApiClient
 
-def test_create_sp_daily_report_maps_adgroups_to_campaigns():
+def test_create_sp_daily_report_maps_adgroups_directly():
     client = MagicMock(spec=AdsApiClient)
     
     # Mock successful response
@@ -22,14 +22,13 @@ def test_create_sp_daily_report_maps_adgroups_to_campaigns():
     
     assert report_id == "test-report-id"
     
-    # Check that request was called with reportTypeId: "spCampaigns"
+    # Check that request was called with reportTypeId: "spAdGroups"
     # and correct groupBy/columns.
     _, kwargs = client.request.call_args
     body = kwargs["json"]
-    assert body["configuration"]["reportTypeId"] == "spCampaigns"
-    assert body["configuration"]["groupBy"] == ["campaign", "adGroup"]
-    assert "roasClicks14d" in body["configuration"]["columns"]
-    assert "acosClicks14d" in body["configuration"]["columns"]
+    assert body["configuration"]["reportTypeId"] == "spAdGroups"
+    assert body["configuration"]["groupBy"] == ["adGroup"]
+    assert "sales14d" in body["configuration"]["columns"]
 
 def test_create_sp_daily_report_uses_sp_targeting_directly():
     client = MagicMock(spec=AdsApiClient)
@@ -54,8 +53,8 @@ def test_create_sp_daily_report_uses_sp_targeting_directly():
     _, kwargs = client.request.call_args
     body = kwargs["json"]
     assert body["configuration"]["reportTypeId"] == "spTargeting"
-    assert body["configuration"]["groupBy"] == ["campaign", "adGroup", "targeting"]
-    assert "roasClicks14d" in body["configuration"]["columns"]
+    assert body["configuration"]["groupBy"] == ["targeting"]
+    assert "sales14d" in body["configuration"]["columns"]
 
 def test_create_sp_daily_report_maps_products_to_advertised_product():
     client = MagicMock(spec=AdsApiClient)

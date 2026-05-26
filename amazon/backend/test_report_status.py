@@ -2,9 +2,9 @@ from services.report_service import ReportService
 
 service = ReportService()
 
-profile_id = "3388765377025893"
+profile_id = "1635579834460007"
 
-report_id = "edf2c133-17b2-4372-b2e9-361d2c3a8d49"
+report_id = "7f69c82b-cddb-4a98-be27-a793bf098a55"
 
 status = service.get_report_status(
     profile_id,

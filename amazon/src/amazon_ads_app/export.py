@@ -11,7 +11,11 @@ from openpyxl.styles import Alignment, Font, PatternFill
 
 
 def sanitize_filename_part(name: str) -> str:
-    s = re.sub(r"[^\w\-.]+", "_", name.strip(), flags=re.UNICODE)
+    # Replace any non-alphanumeric/underscore character (including hyphens and spaces)
+    # with underscores, then collapse runs of underscores.
+    # NOTE: hyphens are intentionally treated as separators so that slugs like
+    # 'TRAMONTINA_INDIA_IN_INR' are consistent with existing on-disk file names.
+    s = re.sub(r"[^\w]+", "_", name.strip(), flags=re.UNICODE)
     s = re.sub(r"_+", "_", s).strip("_")
     return s or "account"
 

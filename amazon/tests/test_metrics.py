@@ -1,6 +1,6 @@
 import pandas as pd
 
-from amazon_ads_app.metrics import add_roas_acos, aggregate_campaign_daily
+from amazon_ads_app.metrics import add_derived_metrics, aggregate_campaign_daily
 
 
 def test_add_roas_acos_basic():
@@ -13,7 +13,7 @@ def test_add_roas_acos_basic():
             "sales": [50.0],
         }
     )
-    out = add_roas_acos(df)
+    out = add_derived_metrics(df)
     assert abs(out.loc[0, "roas"] - 5.0) < 1e-9
     assert abs(out.loc[0, "acos"] - 0.2) < 1e-9
 

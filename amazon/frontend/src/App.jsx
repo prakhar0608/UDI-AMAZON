@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+  import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { 
   LayoutDashboard, 
@@ -56,8 +56,14 @@ import {
   ResponsiveContainer
 } from 'recharts';
 
-// Dynamic API Base
-const API_BASE = `http://${window.location.hostname}:8000/api`;
+// Dynamic API Base with validation and fallback to env
+const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE || `http://${window.location.hostname}:8000/api`;
+try {
+  new URL(API_BASE);
+} catch (e) {
+  console.error("❌ [API BASE CONFIG ERROR] Invalid URL configured for API_BASE:", API_BASE);
+}
+
 
 const Counter = ({ value, prefix = "", suffix = "", decimals = 0 }) => {
   const [displayValue, setDisplayValue] = useState(parseFloat(value) || 0);
@@ -251,7 +257,7 @@ const ItemTable = ({ items, title, prefix = "" }) => {
     <div className="un-card !p-0 overflow-hidden border-slate-200 shadow-sm mt-8">
       <div className="px-8 py-6 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
         <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
-          <Table size={14} className="text-un-amazon" /> {title} Performance
+          <TableIcon size={14} className="text-un-amazon" /> {title} Performance
         </h3>
         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{items.length} Items</span>
       </div>
@@ -319,6 +325,7 @@ function App() {
   const [selectedLevel, setSelectedLevel] = useState('spCampaigns');
   const [isBulkRunning, setIsBulkRunning] = useState(false);
   const [isDiscovering, setIsDiscovering] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState(null);
   const [logs, setLogs] = useState([]);
   
   const [previewData, setPreviewData] = useState(null);
@@ -348,6 +355,65 @@ function App() {
   });
   const [isRealtimeLoading, setIsRealtimeLoading] = useState(false);
 
+  // 1. Verify environment variables loaded in Vite on mount and print missing ones to console
+  useEffect(() => {
+    const requiredEnv = [
+      'VITE_LWA_CLIENT_ID',
+      'VITE_LWA_CLIENT_SECRET',
+      'VITE_LWA_REFRESH_TOKEN'
+    ];
+    const missingEnv = requiredEnv.filter(key => !import.meta.env[key]);
+    
+    if (missingEnv.length > 0) {
+      console.warn("⚠️ [MISSING ENV VARIABLES] The following environment variables are missing from your configuration:");
+      missingEnv.forEach(key => console.warn(`  - ${key}`));
+      console.warn("Please ensure they are defined in your root .env file and that Vite has been restarted.");
+    } else {
+      console.log("✅ [ENV VARIABLES] All required environment variables are correctly loaded in Vite:");
+      requiredEnv.forEach(key => console.log(`  - ${key}: Loaded (Length: ${import.meta.env[key]?.length || 0})`));
+    }
+  }, []);
+
+  /**
+   * Diagnostic helper to show details about API/Network errors, including unreachability,
+   * CORS problems, and server exception details.
+   */
+  const handleApiError = (err, contextMessage) => {
+    const config = err.config || {};
+    const method = (config.method || 'GET').toUpperCase();
+    const url = config.url || 'Unknown URL';
+    
+    console.error(`❌ [API FAILURE] ${contextMessage}`);
+    console.error(`   Request: ${method} ${url}`);
+    if (config.data) {
+      console.error(`   Payload:`, config.data);
+    }
+
+    let userFriendlyMsg = "";
+    
+    // Check if server is unreachable
+    if (err.code === 'ERR_NETWORK' || !err.response) {
+      console.error("   Reason: Server is unreachable. Please verify that the FastAPI backend is running and that there are no CORS/Network blocking issues.");
+      userFriendlyMsg = `${contextMessage}: FastAPI server is unreachable at ${API_BASE}. Please check if the backend is running and matches this address.`;
+      
+      if (window.location.protocol === 'https:' && API_BASE.startsWith('http:')) {
+        console.error("   Possible CORS/Mixed Content issue: Frontend is served over HTTPS but calling backend via HTTP.");
+      }
+    } else {
+      // Backend responded with an error code
+      const status = err.response.status;
+      const responseData = err.response.data;
+      const detail = responseData?.detail || responseData?.message || JSON.stringify(responseData);
+      
+      console.error(`   Status Code: ${status}`);
+      console.error(`   Server Response:`, responseData);
+      
+      userFriendlyMsg = `${contextMessage} (HTTP ${status}): ${detail || 'Internal Server Error'}`;
+    }
+    
+    return userFriendlyMsg;
+  };
+
   useEffect(() => {
     fetchRealtimeAnalytics();
   }, [selectedIds, selectedLevel, startDate, endDate]);
@@ -365,22 +431,22 @@ function App() {
             start_date: startDate,
             end_date: endDate
         });
-        setRealtimeData(res.data);
+        setRealtimeData(res.data || {spend: 0, sales: 0, roas: 0, acos: 0, ctr: 0, cpc: 0, cvr: 0, trend: [], items: []});
     } catch (err) {
-        console.error("Realtime analytics fetch failed", err);
+        handleApiError(err, "Realtime analytics fetch failed");
     } finally {
         setIsRealtimeLoading(false);
     }
   };
 
   const kpiData = [
-    { title: 'Spend', value: realtimeData.spend, change: 0, isPositive: false, prefix: "₹", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.spend})) },
-    { title: 'Sales', value: realtimeData.sales, change: 0, isPositive: true, prefix: "₹", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.sales})) },
-    { title: 'ROAS', value: realtimeData.roas, change: 0, isPositive: true, suffix: "x", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.roas})) },
-    { title: 'ACOS', value: realtimeData.acos, change: 0, isPositive: true, suffix: "%", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.acos})) },
-    { title: 'CTR', value: realtimeData.ctr, change: 0, isPositive: true, suffix: "%", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.spend > 0 ? (realtimeData.clicks / (realtimeData.spend * 100)) : 0})) }, // Simplified CTR sparkline logic
-    { title: 'CPC', value: realtimeData.cpc, change: 0, isPositive: false, prefix: "₹", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.spend / 10})) },
-    { title: 'CVR', value: realtimeData.cvr, change: 0, isPositive: true, suffix: "%", decimals: 2, sparkline: realtimeData.trend.map(d => ({val: d.sales / 100})) },
+    { title: 'Spend', value: realtimeData.spend, change: 0, isPositive: false, prefix: "₹", decimals: 2, sparkline: (realtimeData.trend || []).map(d => ({val: d.spend})) },
+    { title: 'Sales', value: realtimeData.sales, change: 0, isPositive: true, prefix: "₹", decimals: 2, sparkline: (realtimeData.trend || []).map(d => ({val: d.sales})) },
+    { title: 'ROAS', value: realtimeData.roas, change: 0, isPositive: true, suffix: "x", decimals: 2, sparkline: (realtimeData.trend || []).map(d => ({val: d.roas})) },
+    { title: 'ACOS', value: realtimeData.acos, change: 0, isPositive: true, suffix: "%", decimals: 2, sparkline: (realtimeData.trend || []).map(d => ({val: d.acos})) },
+    { title: 'CTR', value: realtimeData.ctr, change: 0, isPositive: true, suffix: "%", decimals: 2, sparkline: (realtimeData.trend || []).map(d => ({val: d.spend > 0 ? (d.spend / 100) : 0})) }, // Simplified CTR sparkline logic
+    { title: 'CPC', value: realtimeData.cpc, change: 0, isPositive: false, prefix: "₹", decimals: 2, sparkline: (realtimeData.trend || []).map(d => ({val: d.spend / 10})) },
+    { title: 'CVR', value: realtimeData.cvr, change: 0, isPositive: true, suffix: "%", decimals: 2, sparkline: (realtimeData.trend || []).map(d => ({val: d.sales / 100})) },
   ];
 
   useEffect(() => {
@@ -404,9 +470,10 @@ function App() {
   const fetchProfiles = async () => {
     try {
       const res = await axios.get(`${API_BASE}/profiles`);
-      setProfiles(res.data);
+      setProfiles(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       addLog("ERROR", "Data node link failed.");
+      handleApiError(err, "Profiles fetch failed");
     }
   };
 
@@ -414,17 +481,33 @@ function App() {
     try {
       const res = await axios.get(`${API_BASE}/analytics/ranges`);
       setRangeData(res.data);
-    } catch (err) {}
+    } catch (err) {
+      handleApiError(err, "Range analytics fetch failed");
+    }
   };
 
   const handleDiscover = async () => {
     setIsDiscovering(true);
+    setDiscoveryError(null);
     try {
       const res = await axios.post(`${API_BASE}/discover`);
-      setProfiles(res.data);
+      const data = res.data || [];
+      if (!Array.isArray(data)) {
+        throw new Error("Invalid response format: expected list of profiles.");
+      }
+      setProfiles(data);
+      setDiscoveryError(null);
     } catch (err) {
       addLog("ERROR", "Discovery failed.");
-      alert("Account discovery failed. Please check your .env API keys and internet connection.");
+      const errorMsg = handleApiError(err, "Account discovery failed");
+      setDiscoveryError(errorMsg);
+      
+      // Auto-retry prompt via confirm dialog
+      if (confirm(`Account discovery failed.\n\nError: ${errorMsg}\n\nWould you like to retry?`)) {
+        setTimeout(() => {
+          handleDiscover();
+        }, 500);
+      }
     } finally {
       setIsDiscovering(false);
     }
@@ -433,8 +516,10 @@ function App() {
   const fetchReports = async () => {
     try {
       const res = await axios.get(`${API_BASE}/reports`);
-      setReports(res.data);
-    } catch (err) {}
+      setReports(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      handleApiError(err, "Reports fetch failed");
+    }
   };
 
   const toggleSelect = (id) => {
