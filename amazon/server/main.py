@@ -18,6 +18,7 @@ from amazon_ads_app.profile_cache import load_cache, save_cache, default_cache_p
 from amazon_ads_app.pipeline import run_profile, run_bulk_profiles
 from amazon_ads_app.profile_discovery import discover_all_profiles
 from amazon_ads_app.export import export_dataframe, sanitize_filename_part
+from amazon_ads_app.metrics import add_derived_metrics
 
 # Custom debug logging
 debug_log_path = project_root / "debug.log"
@@ -28,6 +29,64 @@ def debug_log(msg):
     except: pass
 
 debug_log("Server (re)started")
+
+
+def _build_and_export_report(long_daily: "pd.DataFrame", out_dir: Path, stem: str) -> tuple:
+    """Aggregate long-daily rows, compute KPIs, and export to CSV+XLSX.
+    Returns (csv_name, xlsx_name).
+    """
+    # 1. Aggregate Campaign Performance (across all dates)
+    group_cols = (
+        ["campaign_name"] if "campaign_name" in long_daily.columns
+        else ["asin"] if "asin" in long_daily.columns
+        else ["campaign_id"]
+    )
+    metrics = ["spend", "sales", "impressions", "clicks", "orders"]
+    agg_map = {m: "sum" for m in metrics if m in long_daily.columns}
+    perf_df = long_daily.groupby(group_cols, as_index=False).agg(agg_map)
+    perf_df = add_derived_metrics(perf_df)
+
+    # Rename columns for clarity in Excel
+    rename_map = {
+        "campaign_name": "Campaign Name",
+        "asin": "ASIN",
+        "spend": "Total Spend",
+        "sales": "Total Sales",
+        "roas": "ROAS",
+        "acos": "ACOS",
+        "ctr": "CTR",
+        "cpc": "CPC",
+        "cvr": "CVR",
+        "impressions": "Impressions",
+        "clicks": "Clicks",
+        "orders": "Orders",
+    }
+    perf_df = perf_df.rename(columns={k: v for k, v in rename_map.items() if k in perf_df.columns})
+
+    # 2. Top-Level KPI summary sheet
+    total_spend  = perf_df["Total Spend"].sum()  if "Total Spend"  in perf_df.columns else 0
+    total_sales  = perf_df["Total Sales"].sum()  if "Total Sales"  in perf_df.columns else 0
+    total_clicks = perf_df["Clicks"].sum()       if "Clicks"       in perf_df.columns else 0
+    total_imps   = perf_df["Impressions"].sum()  if "Impressions"  in perf_df.columns else 0
+    total_orders = perf_df["Orders"].sum()       if "Orders"       in perf_df.columns else 0
+
+    summary_df = pd.DataFrame({
+        "Metric": ["Total Spend", "Total Sales", "Overall ROAS", "Overall ACOS",
+                   "Average CPC", "Average CTR", "Average CVR"],
+        "Value": [
+            total_spend,
+            total_sales,
+            total_sales  / total_spend  if total_spend  > 0 else 0,
+            total_spend  / total_sales  if total_sales  > 0 else 0,
+            total_spend  / total_clicks if total_clicks > 0 else 0,
+            total_clicks / total_imps   if total_imps   > 0 else 0,
+            total_orders / total_clicks if total_clicks > 0 else 0,
+        ],
+    })
+
+    # 3. Export
+    export_dataframe(summary_df, perf_df, out_dir, stem=stem)
+    return f"{stem}/{stem}.csv", f"{stem}/{stem}.xlsx"
 
 app = FastAPI(title="Amazon Ads Pipeline API")
 
@@ -67,7 +126,6 @@ async def get_profiles():
         return [p.__dict__ for p in merged.values()]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 @app.post("/api/discover")
 async def discover():
     try:
@@ -88,10 +146,14 @@ async def discover():
         new_cache = build_cache_now(profiles, errors)
         save_cache(cache_path, new_cache)
         
+        if not profiles and errors:
+            raise HTTPException(status_code=400, detail=f"No profiles discovered. Region errors: {errors}")
+            
         return [p.__dict__ for p in profiles]
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
         raise HTTPException(status_code=500, detail=str(e))
-
 @app.get("/api/reports")
 async def get_reports():
     try:
@@ -259,14 +321,13 @@ async def fetch_report(
         run_day = datetime.now(timezone.utc).date().isoformat()
         stem = f"{slug}_{run_day}_{report_type}"
         out_dir = processed_dir / stem
-        export_dataframe(result.wide, out_dir, stem=stem, long_df=result.long_daily)
-        
+        csv_name, xlsx_name = _build_and_export_report(result.long_daily, out_dir, stem)
         return {
-            "status": "success", "run_id": result.run_id, 
-            "csv_name": f"{stem}/{stem}.csv", "xlsx_name": f"{stem}/{stem}.xlsx",
+            "status": "success", "run_id": result.run_id,
+            "csv_name": csv_name, "xlsx_name": xlsx_name,
             "report_type": report_type,
             "start_date": result.start_date,
-            "end_date": result.end_date
+            "end_date": result.end_date,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -336,64 +397,12 @@ def _run_export_job(job_id: str, ids: list[int], report_type: str, start_date: s
             date_range_str = f"{start_date}_to_{end_date}" if start_date and end_date else run_day
             stem = f"{slug}_{date_range_str}_{report_type}"
             out_dir = processed_dir / stem
-            # 1. Aggregate Campaign Performance (across all dates)
-            group_cols = ["campaign_name"] if "campaign_name" in res.long_daily.columns else ["asin"] if "asin" in res.long_daily.columns else ["campaign_id"]
-            
-            # Ensure we only aggregate columns that exist
-            metrics = ["spend", "sales", "impressions", "clicks", "orders"]
-            agg_map = {m: "sum" for m in metrics if m in res.long_daily.columns}
-            
-            perf_df = res.long_daily.groupby(group_cols, as_index=False).agg(agg_map)
-            
-            # Add derived metrics
-            from amazon_ads_app.metrics import add_derived_metrics
-            perf_df = add_derived_metrics(perf_df)
-            
-            # Rename columns for clarity in Excel
-            rename_map = {
-                "campaign_name": "Campaign Name",
-                "asin": "ASIN",
-                "spend": "Total Spend",
-                "sales": "Total Sales",
-                "roas": "ROAS",
-                "acos": "ACOS",
-                "ctr": "CTR",
-                "cpc": "CPC",
-                "cvr": "CVR",
-                "impressions": "Impressions",
-                "clicks": "Clicks",
-                "orders": "Orders"
-            }
-            perf_df = perf_df.rename(columns={k: v for k, v in rename_map.items() if k in perf_df.columns})
-
-            # 2. Calculate Top-Level KPIs
-            total_spend = perf_df["Total Spend"].sum() if "Total Spend" in perf_df.columns else 0
-            total_sales = perf_df["Total Sales"].sum() if "Total Sales" in perf_df.columns else 0
-            total_clicks = perf_df["Clicks"].sum() if "Clicks" in perf_df.columns else 0
-            total_imps = perf_df["Impressions"].sum() if "Impressions" in perf_df.columns else 0
-            total_orders = perf_df["Orders"].sum() if "Orders" in perf_df.columns else 0
-            
-            summary_data = {
-                "Metric": ["Total Spend", "Total Sales", "Overall ROAS", "Overall ACOS", "Average CPC", "Average CTR", "Average CVR"],
-                "Value": [
-                    total_spend,
-                    total_sales,
-                    total_sales / total_spend if total_spend > 0 else 0,
-                    (total_spend / total_sales) if total_sales > 0 else 0,
-                    total_spend / total_clicks if total_clicks > 0 else 0,
-                    total_clicks / total_imps if total_imps > 0 else 0,
-                    total_orders / total_clicks if total_clicks > 0 else 0
-                ]
-            }
-            summary_df = pd.DataFrame(summary_data)
-
-            # 3. Export
-            export_dataframe(summary_df, perf_df, out_dir, stem=stem)
+            csv_name, xlsx_name = _build_and_export_report(res.long_daily, out_dir, stem)
             final_results.append({
                 "profile": res.profile.display_name,
-                "csv_name": f"{stem}/{stem}.csv",
-                "xlsx_name": f"{stem}/{stem}.xlsx",
-                "run_id": res.run_id
+                "csv_name": csv_name,
+                "xlsx_name": xlsx_name,
+                "run_id": res.run_id,
             })
         
         _jobs[job_id]["status"] = "success"
@@ -522,41 +531,62 @@ async def get_realtime_analytics(request: RealtimeRequest):
                 debug_log(f"Error processing {f}: {e}")
                 continue
 
+        def clean_float(val):
+            try:
+                import math
+                import numpy as np
+                # Check for standard float or numpy floating types
+                if isinstance(val, (float, np.floating)) or pd.isna(val):
+                    if pd.isna(val) or math.isnan(val) or math.isinf(val):
+                        return 0.0
+                val_f = float(val)
+                if math.isnan(val_f) or math.isinf(val_f):
+                    return 0.0
+                return val_f
+            except:
+                return 0.0
+
         # Format trend data
         trend = []
         for d in dates:
             m = aggregated_metrics[d]
-            roas = m["sales"] / m["spend"] if m["spend"] > 0 else 0
-            acos = (m["spend"] / m["sales"] * 100) if m["sales"] > 0 else 0
+            spend_val = clean_float(m["spend"])
+            sales_val = clean_float(m["sales"])
+            roas = sales_val / spend_val if spend_val > 0 else 0.0
+            acos = (spend_val / sales_val * 100) if sales_val > 0 else 0.0
             trend.append({
                 "day": d.split('-')[-1], # Just the day for the chart
                 "date": d,
-                "spend": round(m["spend"], 2),
-                "sales": round(m["sales"], 2),
-                "roas": round(roas, 2),
-                "acos": round(acos, 2)
+                "spend": round(spend_val, 2),
+                "sales": round(sales_val, 2),
+                "roas": round(clean_float(roas), 2),
+                "acos": round(clean_float(acos), 2)
             })
 
-        total_spend = sum(m["spend"] for m in aggregated_metrics.values())
-        total_sales = sum(m["sales"] for m in aggregated_metrics.values())
-        total_clicks = sum(m["clicks"] for m in aggregated_metrics.values())
-        total_imps = sum(m["impressions"] for m in aggregated_metrics.values())
-        total_orders = sum(m["orders"] for m in aggregated_metrics.values())
+        total_spend = sum(clean_float(m["spend"]) for m in aggregated_metrics.values())
+        total_sales = sum(clean_float(m["sales"]) for m in aggregated_metrics.values())
+        total_clicks = sum(clean_float(m["clicks"]) for m in aggregated_metrics.values())
+        total_imps = sum(clean_float(m["impressions"]) for m in aggregated_metrics.values())
+        total_orders = sum(clean_float(m["orders"]) for m in aggregated_metrics.values())
 
         # Format items list
         items = []
         for name, m in item_metrics.items():
-            if m["spend"] == 0 and m["sales"] == 0: continue
-            roas = m["sales"] / m["spend"] if m["spend"] > 0 else 0
-            acos = (m["spend"] / m["sales"] * 100) if m["sales"] > 0 else 0
+            spend_val = clean_float(m["spend"])
+            sales_val = clean_float(m["sales"])
+            clicks_val = clean_float(m["clicks"])
+            orders_val = clean_float(m["orders"])
+            if spend_val == 0 and sales_val == 0: continue
+            roas = sales_val / spend_val if spend_val > 0 else 0.0
+            acos = (spend_val / sales_val * 100) if sales_val > 0 else 0.0
             items.append({
                 "name": name,
-                "spend": round(m["spend"], 2),
-                "sales": round(m["sales"], 2),
-                "clicks": int(m["clicks"]),
-                "orders": int(m["orders"]),
-                "roas": round(roas, 2),
-                "acos": round(acos, 2)
+                "spend": round(spend_val, 2),
+                "sales": round(sales_val, 2),
+                "clicks": int(clicks_val),
+                "orders": int(orders_val),
+                "roas": round(clean_float(roas), 2),
+                "acos": round(clean_float(acos), 2)
             })
         
         # Sort items by spend descending
@@ -614,14 +644,16 @@ async def get_range_analytics():
                 'total_sales': 'sum'
             }).reset_index()
             
+            import numpy as np
             range_analytics['roas'] = range_analytics['total_sales'] / range_analytics['total_spend']
-            range_analytics = range_analytics.fillna(0)
+            range_analytics = range_analytics.replace([np.inf, -np.inf], np.nan).fillna(0)
             
             subcat_analytics = merged.groupby('Subcat').agg({
                 'Asins': 'count',
                 'total_spend': 'sum',
                 'total_sales': 'sum'
             }).reset_index()
+            subcat_analytics = subcat_analytics.replace([np.inf, -np.inf], np.nan).fillna(0)
             
             return {
                 "ranges": range_analytics.rename(columns={'Asins': 'count'}).to_dict('records'),

@@ -29,7 +29,7 @@ def test_pivot_wide_two_campaigns():
 
     # Verify column order: spend_D1, sales_D1, roas_D1, acos_D1, spend_D2, sales_D2, roas_D2, acos_D2
     expected_cols = [
-        "campaign_id", "campaign_name",
+        "campaign_name", "campaign_id",
         "spend_2026-04-01", "sales_2026-04-01", "roas_2026-04-01", "acos_2026-04-01",
         "spend_2026-04-02", "sales_2026-04-02", "roas_2026-04-02", "acos_2026-04-02"
     ]

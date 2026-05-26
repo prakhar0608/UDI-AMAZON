@@ -15,3 +15,6 @@ dist/
 build/
 *.egg-info/
 amazon_ads_app.egg-info/
+test_download_report.py
+*.gz
+report*.json

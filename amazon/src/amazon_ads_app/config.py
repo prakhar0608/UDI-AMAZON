@@ -59,22 +59,26 @@ class AppConfig:
 
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[2]
-
-
 def load_app_config(
     env_path: Path | None = None,
     profiles_path: Path | None = None,
 ) -> AppConfig:
     root = _project_root()
-    load_dotenv(env_path or root / ".env")
+    load_dotenv(env_path or root / ".env", override=True)
+
+    def get_var(name: str) -> str:
+        vite_name = f"VITE_{name}"
+        if vite_name in os.environ:
+            return _clean_env(vite_name)
+        return _clean_env(name)
+
     return AppConfig(
-        lwa_client_id=_clean_env("LWA_CLIENT_ID"),
-        lwa_client_secret=_clean_env("LWA_CLIENT_SECRET"),
-        lwa_refresh_token=_clean_env("LWA_REFRESH_TOKEN"),
+        lwa_client_id=get_var("LWA_CLIENT_ID"),
+        lwa_client_secret=get_var("LWA_CLIENT_SECRET"),
+        lwa_refresh_token=get_var("LWA_REFRESH_TOKEN"),
         profiles_path=profiles_path or root / "config" / "profiles.yaml",
         project_root=root,
     )
-
 
 def load_profiles(path: Path) -> list[ProfileConfig]:
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
